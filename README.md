@@ -9,3 +9,8 @@ Works with esp8266
 - Stock quotes
 - Instagram followers
 - Custom text via web interface
+
+2 parola zones:
+- 3 modules for time
+- rest for scrolling contents
+

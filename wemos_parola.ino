@@ -9,6 +9,7 @@
 #include <ESP8266HTTPClient.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
+#include <WiFiClient.h>
 
 #include <ArduinoJson.h>
 
@@ -25,24 +26,11 @@
 // SOFTWARE SPI
 MD_Parola P = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
 
-// Turn on debug statements to the serial output
-#define  DEBUG_ENABLE  0
-
-#if  DEBUG_ENABLE
-#define DEBUG(s, x) { Serial.print(F(s)); Serial.print(x); }
-#define DEBUGS(x) Serial.print(F(x))
-#define DEBUGX(x) Serial.println(x, HEX)
-#else
-#define DEBUG(s, x)
-#define DEBUGS(x)
-#define DEBUGX(x)
-#endif
-
 #define PAUSE_TIME 0
 #define SPEED_TIME 50
 
 char timeBuffer[8];
-char scrollBuffer[512];
+char scrollBuffer[512]; // maybe a bit large...
 
 uint8_t degC[] = { 6, 3, 3, 56, 68, 68, 68 };	 // Deg C
 uint8_t euro[] = { 6, 20, 62, 85, 85, 65, 34 };  // 'Euro sign'
@@ -207,7 +195,7 @@ void setup(void) {
     });
     webServer.on("/", handleRoot);
     webServer.begin();
-  }
+ }
 
   // Parola object
   P.begin(2);
@@ -226,10 +214,10 @@ void setup(void) {
   //P.displayZoneText(0, scrollBuffer, PA_CENTER, SPEED_TIME, 0, PA_SPRITE, PA_SPRITE);
   //P.setSpriteData(0, invader, W_INVADER, F_INVADER, invader, W_INVADER, F_INVADER);
 
-  P.addChar('$', degC);
-  P.addChar('^', euro);
-  P.addChar('#', bitcoin);
-  P.addChar(';', insta);
+  P.addChar(0, '$', degC);
+  P.addChar(0, '^', euro);
+  P.addChar(0, '#', bitcoin);
+  P.addChar(0, ';', insta);
 }
 
 
@@ -410,7 +398,8 @@ void getOWMInfo() {
   if ((lastOWMQuery == 0) || ((millis() - lastOWMQuery) >= 15 * 60 * 1000)) { // every 10 mn
     OWMInfo.error = true;
     if (WiFi.isConnected()) {
-      owm.begin(owmURL);
+      WiFiClient client;
+      owm.begin(client, owmURL);
       if (owm.GET()) {
         String json = owm.getString();
 //        Serial.println(json);
@@ -439,9 +428,9 @@ void getOWMInfo() {
 void displayTemp() {
   getOWMInfo();
   if (OWMInfo.error == false) {
-    sprintf(scrollBuffer, "Temperature : %d$", (int)OWMInfo.temperature);
+    sprintf(scrollBuffer, "Temp\xE9rature ext\xE9rieure : %d$", (int)OWMInfo.temperature);
   } else {
-   strcpy(scrollBuffer, "Temperature : ---");   
+   strcpy(scrollBuffer, "");   
   }
   scrollBuffer[4] = 0xE9; // patch accent 
 }
@@ -452,7 +441,7 @@ void displayDescription() {
     sprintf(scrollBuffer, "%s", OWMInfo.fulldescription);
     scrollBuffer[0] = toupper(scrollBuffer[0]);
   } else {
-   strcpy(scrollBuffer, "---");   
+   strcpy(scrollBuffer, "");   
   } 
 }
 
@@ -466,7 +455,8 @@ void getBitcoin() {
   if ((lastBTCQuery == 0) || ((millis() - lastBTCQuery) >= 10 * 60 * 1000)) { // every 10 mn
    btcError = true;
    if (WiFi.isConnected()) {
-      owm.begin(bitcoinURL);
+    WiFiClient client;
+      owm.begin(client, bitcoinURL);
       if (owm.GET()) {
         String json = owm.getString();
        //Serial.println(json);
@@ -645,6 +635,52 @@ void displayQuotes() {
   }
 }
 
+boolean insideTempError;
+float insideTemp;
+
+HTTPClient adafruitClient;
+// not needed (public feed)
+#define AIO_KEY         "5cefb5958805493da7dc5610a4c47eb9"
+
+void getInsideTemp() {
+  static long lastAdafruitQuery = 0;
+  if ((lastAdafruitQuery == 0) || ((millis() - lastAdafruitQuery) >= 15 * 60 * 1000)) { // every 15 mn
+    insideTempError = true;
+   if (WiFi.isConnected()) {
+    WiFiClient client;
+    // last is not working
+    adafruitClient.begin(client, "http://io.adafruit.com/api/v2/delhoume/feeds/temperature/data?include=value&limit=1");
+      if (adafruitClient.GET()) {
+        String json = adafruitClient.getString();
+
+//      Serial.println(json);
+      DynamicJsonBuffer jsonBuffer(64);
+      JsonArray& root = jsonBuffer.parseArray(json);
+      if (root.success()) {
+//        Serial.println("Success");
+        insideTemp = root[0]["value"];
+        insideTempError = false;
+      }
+     }
+  } else {
+//        Serial.println("Not connected");
+  }
+   lastAdafruitQuery = millis();
+}
+}
+
+void displayInsideTemp() {
+  getInsideTemp();
+  if (insideTempError == false) {
+    if ((fabs(round(insideTemp) - insideTemp)) <= 0000.1) // int, do not display trailing 0
+      sprintf(scrollBuffer, "Temp\xE9rature int\xE9rieure : %d$", (int)round(insideTemp));
+    else
+      sprintf(scrollBuffer, "Temp\xE9rature int\xE9rieure : %.1f$", insideTemp); // one decimal
+  } else {
+    strcpy(scrollBuffer, "");
+  }
+}
+
 void displayText() {
     strcpy(scrollBuffer, textBuffer);
 }
@@ -653,6 +689,7 @@ DISPLAYFUN displayFuns[] = {
   displayDate,
   displayTemp,
   displayDescription,
+  displayInsideTemp,
   displayBitcoin,
   displayIGFollowers,
   displayQuotes,

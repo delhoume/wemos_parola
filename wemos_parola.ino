@@ -579,7 +579,7 @@ void getQuotes() {
     if (iexClient.connect(HOST_STOCKS, 443)) {
 //      Serial.println("Connected");
       String json;
-      iexClient.print(String("GET /1.0/stock/market/batch?symbols=aapl,ibm,msft,goog,amzn&types=price") +
+      iexClient.print(String("GET /1.0/stock/market/batch?symbols=aapl,amzn,goog,ibm,msft&types=price") +
               " HTTP/1.1\r\n" +
               "Host: " + HOST_STOCKS + "\r\n" +
               "User-Agent: arduino/1.0.0\r\n" +

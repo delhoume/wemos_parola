@@ -30,7 +30,7 @@ MD_Parola P = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
 #define SPEED_TIME 50
 
 char timeBuffer[8];
-char scrollBuffer[512]; // maybe a bit large...
+char scrollBuffer[256]; // maybe a bit large...
 
 uint8_t degC[] = { 6, 3, 3, 56, 68, 68, 68 };	 // Deg C
 uint8_t euro[] = { 6, 20, 62, 85, 85, 65, 34 };  // 'Euro sign'

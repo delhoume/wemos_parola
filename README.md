@@ -8,6 +8,7 @@ Works with esp8266
 - OpenWeatherMap local weather
 - Stock quotes
 - Instagram followers
+- Adafruit.IO feed value
 - Custom text via web interface
 
 2 parola zones:

@@ -1,6 +1,7 @@
 #include <MD_Parola.h>
 #include "JF_Font_Data.h"
 #include "ASCII_Font_Data.h"
+#include "Numeric7seg_Font_data.h"
 
 #include <WiFiManager.h>
 #include <ArduinoOTA.h>
@@ -207,7 +208,8 @@ void setup(void) {
   P.setIntensity(0);
 
   P.setFont(0, ExtASCII); // all utf8 chars
-  P.setFont(1, jF_Custom); // small fixed width numbers
+  //P.setFont(1, jF_Custom); // small fixed width numbers
+  P.setFont(1, numeric7Se);
 
   P.displayZoneText(1, timeBuffer, PA_LEFT, SPEED_TIME, PAUSE_TIME, PA_PRINT, PA_NO_EFFECT);
   P.displayZoneText(0, scrollBuffer, PA_CENTER, SPEED_TIME, 0, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
@@ -610,10 +612,7 @@ void getQuotes() {
              JsonVariant& v = p.value; // is a JsonVariant
              JsonObject& var = v.as<JsonObject>();
              const char* value = var["price"];
-             str += stock;
-             str += " ";
-             str += value;
-             str += "    ";
+             str = str + String(stock) + ":" + String(value) + "   ";
         }
         strcpy(stocksBuffer, str.c_str());
         stocksError = false;

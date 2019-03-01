@@ -1,8 +1,8 @@
 // Data file for user example user defined fonts
-#ifndef FONTDATA_H
-#define FONTDATA_H
+#ifndef NUMERIC_FONTDATA_H
+#define NUMERIC_FONTDATA_H
 
-MD_MAX72XX::fontType_t numeric7Seg[] PROGMEM = 
+uint8_t numeric7Seg[] PROGMEM = 
 {
   0,    // 0
   0,    // 1
@@ -262,7 +262,7 @@ MD_MAX72XX::fontType_t numeric7Seg[] PROGMEM =
   0,    // 255
 };
 
-MD_MAX72XX::fontType_t numeric7Se[] PROGMEM = 
+uint8_t numeric7Se[] PROGMEM = 
 {
   0,    // 0
   0,    // 1
@@ -313,14 +313,14 @@ MD_MAX72XX::fontType_t numeric7Se[] PROGMEM =
   1, 64,    // 46 - '.'
   0,    // 47 - '/'
   4, 127, 65, 65, 127,  // 48 - '0'
-  4, 0, 66, 127, 64,     // 49 - '1'
+  4, 68, 66, 127, 64,     // 49 - '1'
   4, 121, 73, 73, 79,   // 50 - '2'
-  4, 99, 73, 73, 119,   // 51 - '3'
+  4, 73, 73, 73, 127,   // 51 - '3'
   4, 15, 8, 8, 127,    // 52 - '4'
   4, 79, 73, 73, 121,   // 53 - '5'
   4, 127, 73, 73, 121,  // 54 - '6'
-  4, 3, 1, 125, 3,     // 55 - '7'
-  4, 119, 73, 73, 119,  // 56 - '8'
+  4, 7, 1, 1, 127,     // 55 - '7'
+  4, 127, 73, 73, 127,  // 56 - '8'
   4, 79, 73, 73, 127,   // 57 - '9'
   1, 20,    // 58 - ':'
   0,    // 59 - ';'

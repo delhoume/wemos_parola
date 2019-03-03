@@ -28,7 +28,7 @@
 MD_Parola P = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
 
 #define PAUSE_TIME 0
-#define SPEED_TIME 50
+#define SPEED_TIME 60
 
 char timeBuffer[8];
 char scrollBuffer[256]; // maybe a bit large...
@@ -150,10 +150,12 @@ const char* days[] = { "Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendr
 const char* monthes[] = { "Janvier", "F\xE9vrier", "Mars", "Avril", "Mai", "Juin", "Juillet", 
                           "Ao\xFBt", "Septembre", "Octobre", "Novembre", "D\xE9""cembre" };
 
+
+
 void setup(void) {
   Serial.begin(57600);
   P.begin();
-  P.setIntensity(0);
+  P.setIntensity(4);
   P.print("Wifi...");
 
 #if 1
@@ -205,14 +207,15 @@ void setup(void) {
   P.setZone(1, MAX_DEVICES - 3, MAX_DEVICES - 1); // time
 
   P.setSpeed(50);
-  P.setIntensity(0);
+  P.setIntensity(0, 1);
+  P.setIntensity(1, 5); // green is dimmer ?
 
   P.setFont(0, ExtASCII); // all utf8 chars
   //P.setFont(1, jF_Custom); // small fixed width numbers
   P.setFont(1, numeric7Se);
 
   P.displayZoneText(1, timeBuffer, PA_LEFT, SPEED_TIME, PAUSE_TIME, PA_PRINT, PA_NO_EFFECT);
-  P.displayZoneText(0, scrollBuffer, PA_CENTER, SPEED_TIME, 0, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+  P.displayZoneText(0, scrollBuffer, PA_LEFT, SPEED_TIME, PAUSE_TIME, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
   //P.displayZoneText(0, scrollBuffer, PA_CENTER, SPEED_TIME, 0, PA_SPRITE, PA_SPRITE);
   //P.setSpriteData(0, invader, W_INVADER, F_INVADER, invader, W_INVADER, F_INVADER);
 
@@ -505,24 +508,20 @@ WiFiClientSecure igClient;
 String INSTA_ACCESS_TOKEN = "371168969.6b88fad.5963587e52864c6088e2f005d8302625";
 const char fingerprint[] PROGMEM = "4D 43 94 7A 0B DB 77 C1 D6 65 E1 12 8C 16 20 23 BC F9 4F 03";
 
-// very slow ! why ?
 void getIGFollowers() {
   static long lastIGQuery = 0;
   if ((lastIGQuery == 0) || ((millis() - lastIGQuery) >= 30 * 60 * 1000)) { // every 30 mn
     igError = true;
    if (WiFi.isConnected()) {
     igClient.setFingerprint(fingerprint);
-    if (igClient.connect(HOST_INSTA, 443)) {
+    igClient.setInsecure();
+    if (igClient.connect(HOST_INSTA, 443)) { // very slow ! why ?
 //      Serial.println("Connected");
-      String json;
-      igClient.print("GET ");
-      igClient.print("/v1/users/self/?access_token=");
-      igClient.print(INSTA_ACCESS_TOKEN);
-      igClient.println(" HTTP/1.1");
-      igClient.println(String("Host: ") + HOST_INSTA);
-      igClient.println("User-Agent: arduino/1.0.0");
-      igClient.println("Connection: close");
-      igClient.println();
+      igClient.print(String("GET /v1/users/self/?access_token=") + INSTA_ACCESS_TOKEN +
+                            " HTTP/1.1\r\n" +
+                            "Host: " + HOST_INSTA + "\r\n" + 
+                      //      "User-Agent: arduino/1.0.0\r\n" +
+                             "Connection: close\r\n\r\n");
   
        while(igClient.connected() && !igClient.available());
        while (igClient.connected()) {
@@ -532,7 +531,8 @@ void getIGFollowers() {
             break;
           }
       }
-      // readStringUntil is very slow, because it is blocking on found char or 5s timeout...
+       String json;
+     // readStringUntil is very slow, because it is blocking on found char or 5s timeout...
        while (igClient.available()) {
           int actualLength = igClient.read(_buffer, RESP_BUFFER_LENGTH - 1);
           _buffer[actualLength] = 0;
@@ -577,52 +577,54 @@ void getQuotes() {
   if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 15 * 60 * 1000)) { // every 15 mn
     stocksError = true;
    if (WiFi.isConnected()) {
-    iexClient.setFingerprint(fingerprintIEX);
-    if (iexClient.connect(HOST_STOCKS, 443)) {
-//      Serial.println("Connected");
-      String json;
-      iexClient.print(String("GET /1.0/stock/market/batch?symbols=aapl,amzn,goog,ibm,msft&types=price") +
-              " HTTP/1.1\r\n" +
-              "Host: " + HOST_STOCKS + "\r\n" +
-              "User-Agent: arduino/1.0.0\r\n" +
-              "Connection: close\r\n\r\n");
-  
-       while(iexClient.connected() && !iexClient.available());
-       while (iexClient.connected()) {
-          String line = iexClient.readStringUntil('\n');
-          if (line == "\r") {
- //           Serial.println("headers received");
-            break;
+      iexClient.setFingerprint(fingerprintIEX); 
+      iexClient.setInsecure();
+ //     iexClient.setTimeout(10);
+//      long tt = millis();
+      if (iexClient.connect(HOST_STOCKS, 443)) { // very slow ! > 2 seconds
+ //       Serial.print("connect time : "); Serial.println(millis() - tt); tt = millis();
+          String json;
+           iexClient.print(String("GET /1.0/stock/market/batch?symbols=aapl,amzn,goog,ibm,msft&types=price") +
+                  " HTTP/1.1\r\n" +
+                  "Host: " + HOST_STOCKS + "\r\n" +
+//                  "User-Agent: arduino/1.0.0\r\n" +
+                  "Connection: close\r\n\r\n");
+            while(iexClient.connected() && !iexClient.available());
+           while (iexClient.connected()) {
+              String line = iexClient.readStringUntil('\n');
+              if (line == "\r") {
+                 break;
+              }
           }
-      }
-      // readStringUntil is very slow, because it is blocking on found char or 5s timeout...
-       while (iexClient.available()) {
-         int actualLength = iexClient.read(_buffer, RESP_BUFFER_LENGTH - 1);
-          _buffer[actualLength] = 0;
-          json += String((char*)_buffer);
-      }
-      iexClient.stop();
-  
-      DynamicJsonBuffer jsonBuffer(256);
-      JsonObject& root = jsonBuffer.parseObject(json);
-      if (root.success()) {
-       String str;
-        for (JsonPair& p : root) {
-            const char* stock = p.key; // is a const char* pointing to the key           
-             JsonVariant& v = p.value; // is a JsonVariant
-             JsonObject& var = v.as<JsonObject>();
-             const char* value = var["price"];
-             str = str + String(stock) + ":" + String(value) + "   ";
+          // readStringUntil is very slow, because it is blocking on found char or 5s timeout...
+           while (iexClient.available()) {
+             int actualLength = iexClient.read(_buffer, RESP_BUFFER_LENGTH - 1);
+              _buffer[actualLength] = 0;
+              json += String((char*)_buffer);
+          }
+          iexClient.stop();
+
+          DynamicJsonBuffer jsonBuffer(256);
+          JsonObject& root = jsonBuffer.parseObject(json);
+          if (root.success()) {
+             String str;
+              for (JsonPair& p : root) {
+                  const char* stock = p.key; // is a const char* pointing to the key           
+                   JsonVariant& v = p.value; // is a JsonVariant
+                   JsonObject& var = v.as<JsonObject>();
+                   float value = var["price"];
+                   char buf[32];
+                   sprintf(buf, "%s : %d    ", stock, (int)value);
+                   str += String(buf);
+              }
+              strcpy(stocksBuffer, str.c_str());
+              stocksError = false;
+           }
         }
-        strcpy(stocksBuffer, str.c_str());
-        stocksError = false;
+      } else {
       }
-     }
-  } else {
-  //       Serial.println("Not connected");
-  }
-   lastIEXQuery = millis();
-}
+      lastIEXQuery = millis();
+    }
 }
 
 void displayQuotes() {

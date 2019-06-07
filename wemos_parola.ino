@@ -403,18 +403,17 @@ void getOWMInfo() {
   if ((lastOWMQuery == 0) || ((millis() - lastOWMQuery) >= 15 * 60 * 1000)) { // every 10 mn
     OWMInfo.error = true;
     if (WiFi.isConnected()) {
-      WiFiClient client;
-      owm.begin(client, owmURL);
+      owm.begin(owmURL);
       if (owm.GET()) {
         String json = owm.getString();
 //        Serial.println(json);
 //       Serial.println(json.length());
-        DynamicJsonBuffer jsonBuffer(1024);
-        JsonObject& root = jsonBuffer.parseObject(json);
-        if (root.success()) {
-          float temp = root["main"]["temp"];
+        DynamicJsonDocument doc(1024);
+        auto result = deserializeJson(doc, json);
+        if (!result) {
+          float temp = doc["main"]["temp"];
           OWMInfo.temperature = round(temp);
-          JsonObject& weather = root["weather"][0];
+          JsonObject weather = doc["weather"][0];
           strcpy(OWMInfo.description, weather["main"]);
           static char utf8buf[64];
           strcpy(utf8buf, weather["description"]);
@@ -460,16 +459,15 @@ void getBitcoin() {
   if ((lastBTCQuery == 0) || ((millis() - lastBTCQuery) >= 10 * 60 * 1000)) { // every 10 mn
    btcError = true;
    if (WiFi.isConnected()) {
-    WiFiClient client;
-      owm.begin(client, bitcoinURL);
+      owm.begin(bitcoinURL);
       if (owm.GET()) {
         String json = owm.getString();
        //Serial.println(json);
        //Serial.println(json.length());
-        DynamicJsonBuffer jsonBuffer(1024);
-        JsonObject& root = jsonBuffer.parseObject(json);
-        if (root.success()) {
-          JsonObject& bpi_EUR = root["bpi"]["EUR"];
+        DynamicJsonDocument doc(1024);
+        auto result = deserializeJson(doc, json);
+        if (!result) {
+          JsonObject bpi_EUR = doc["bpi"]["EUR"];
           btcValue = bpi_EUR["rate_float"]; // 3285.5006
           btcError = false;
         }
@@ -506,16 +504,17 @@ boolean igError;
 char HOST_INSTA[] = "api.instagram.com";
 WiFiClientSecure igClient;
 String INSTA_ACCESS_TOKEN = "371168969.6b88fad.5963587e52864c6088e2f005d8302625";
-const char fingerprint[] PROGMEM = "4D 43 94 7A 0B DB 77 C1 D6 65 E1 12 8C 16 20 23 BC F9 4F 03";
+const char fingerprint[] = "4D 43 94 7A 0B DB 77 C1 D6 65 E1 12 8C 16 20 23 BC F9 4F 03";
 
 void getIGFollowers() {
   static long lastIGQuery = 0;
   if ((lastIGQuery == 0) || ((millis() - lastIGQuery) >= 30 * 60 * 1000)) { // every 30 mn
     igError = true;
    if (WiFi.isConnected()) {
-    igClient.setFingerprint(fingerprint);
-    igClient.setInsecure();
+ //   igClient.setFingerprint(fingerprint);
+  //  igClient.setInsecure();
     if (igClient.connect(HOST_INSTA, 443)) { // very slow ! why ?
+    igClient.verify(fingerprint, HOST_INSTA);
 //      Serial.println("Connected");
       igClient.print(String("GET /v1/users/self/?access_token=") + INSTA_ACCESS_TOKEN +
                             " HTTP/1.1\r\n" +
@@ -540,14 +539,14 @@ void getIGFollowers() {
       }
       igClient.stop();
   
-      DynamicJsonBuffer jsonBuffer(600);
-      JsonObject& root = jsonBuffer.parseObject(json);
-      if (root.success()) {
-        JsonObject& data = root["data"];
-        JsonObject& data_counts = data["counts"];
-        igFollowers = data_counts["followed_by"];
-        igError = false;
-      }
+      DynamicJsonDocument doc(1024);
+        auto result = deserializeJson(doc, json);
+        if (!result) {
+          JsonObject data = doc["data"];
+          JsonObject data_counts = data["counts"];
+          igFollowers = data_counts["followed_by"];
+          igError = false;
+        }
      }
    } else {
     //       Serial.println("Not connected");
@@ -570,19 +569,20 @@ char stocksBuffer[256];
 
 char HOST_STOCKS[] = "api.iextrading.com";
 WiFiClientSecure iexClient;
-const char fingerprintIEX[] PROGMEM = "D1 34 42 D6 30 58 2F 09 A0 8C 48 B6 25 B4 6C 05 69 A4 2E 4E";
+const char fingerprintIEX[] = "D1 34 42 D6 30 58 2F 09 A0 8C 48 B6 25 B4 6C 05 69 A4 2E 4E";
 
 void getQuotes() {
   static long lastIEXQuery = 0;
   if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 15 * 60 * 1000)) { // every 15 mn
     stocksError = true;
    if (WiFi.isConnected()) {
-      iexClient.setFingerprint(fingerprintIEX); 
-      iexClient.setInsecure();
+      //iexClient.setFingerprint(fingerprintIEX); 
+     // iexClient.setInsecure();
  //     iexClient.setTimeout(10);
 //      long tt = millis();
       if (iexClient.connect(HOST_STOCKS, 443)) { // very slow ! > 2 seconds
  //       Serial.print("connect time : "); Serial.println(millis() - tt); tt = millis();
+          iexClient.verify(fingerprintIEX, HOST_STOCKS);
           String json;
            iexClient.print(String("GET /1.0/stock/market/batch?symbols=aapl,amzn,goog,ibm,msft&types=price") +
                   " HTTP/1.1\r\n" +
@@ -604,14 +604,15 @@ void getQuotes() {
           }
           iexClient.stop();
 
-          DynamicJsonBuffer jsonBuffer(256);
-          JsonObject& root = jsonBuffer.parseObject(json);
-          if (root.success()) {
+          DynamicJsonDocument doc(256);
+          auto result = deserializeJson(doc, json);
+          if (!result) {
              String str;
-              for (JsonPair& p : root) {
-                  const char* stock = p.key; // is a const char* pointing to the key           
-                   JsonVariant& v = p.value; // is a JsonVariant
-                   JsonObject& var = v.as<JsonObject>();
+             JsonObject root = doc.as<JsonObject>();
+              for (JsonPair p : root) {
+                  const char* stock = p.key().c_str(); // is a const char* pointing to the key           
+                   JsonVariant v = p.value(); // is a JsonVariant
+                   JsonObject var = v.as<JsonObject>();
                    float value = var["price"];
                    char buf[32];
                    sprintf(buf, "%s : %d    ", stock, (int)value);
@@ -648,18 +649,17 @@ void getInsideTemp() {
   if ((lastAdafruitQuery == 0) || ((millis() - lastAdafruitQuery) >= 15 * 60 * 1000)) { // every 15 mn
     insideTempError = true;
    if (WiFi.isConnected()) {
-    WiFiClient client;
     // last is not working
-    adafruitClient.begin(client, "http://io.adafruit.com/api/v2/delhoume/feeds/temperature/data?include=value&limit=1");
+    adafruitClient.begin("http://io.adafruit.com/api/v2/delhoume/feeds/temperature/data?include=value&limit=1");
       if (adafruitClient.GET()) {
         String json = adafruitClient.getString();
 
 //      Serial.println(json);
-      DynamicJsonBuffer jsonBuffer(64);
-      JsonArray& root = jsonBuffer.parseArray(json);
-      if (root.success()) {
+      DynamicJsonDocument doc(64);
+        auto result = deserializeJson(doc, json);
+        if (!result) {
 //        Serial.println("Success");
-        insideTemp = root[0]["value"];
+        insideTemp = doc[0]["value"];
         insideTempError = false;
       }
      }

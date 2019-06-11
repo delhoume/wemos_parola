@@ -123,7 +123,6 @@ const char INDEX_HTML[] =
 "<!DOCTYPE HTML>"
 "<html>"
 "<head>"
-"<meta name = \"viewport\" content = \"width = device-width, initial-scale = 1.0, maximum-scale = 1.0, user-scalable=0\">"
 "<title>Ticker text</title>"
 "<style>"
 "\"body { background-color: #808080; font-family: Arial, Helvetica, Sans-Serif; Color: #000000; }\""

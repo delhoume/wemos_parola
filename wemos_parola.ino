@@ -236,6 +236,7 @@ void displayDate() {
 }
 
 HTTPClient owm;
+WiFiClient wclient;
 
 struct WeatherInfo {
   float temperature;
@@ -403,7 +404,7 @@ void getOWMInfo() {
   if ((lastOWMQuery == 0) || ((millis() - lastOWMQuery) >= 15 * 60 * 1000)) { // every 10 mn
     OWMInfo.error = true;
     if (WiFi.isConnected()) {
-      owm.begin(owmURL);
+      owm.begin(wclient, owmURL);
       if (owm.GET()) {
         String json = owm.getString();
 //        Serial.println(json);
@@ -459,7 +460,7 @@ void getBitcoin() {
   if ((lastBTCQuery == 0) || ((millis() - lastBTCQuery) >= 10 * 60 * 1000)) { // every 10 mn
    btcError = true;
    if (WiFi.isConnected()) {
-      owm.begin(bitcoinURL);
+      owm.begin(wclient, bitcoinURL);
       if (owm.GET()) {
         String json = owm.getString();
        //Serial.println(json);
@@ -650,7 +651,7 @@ void getInsideTemp() {
     insideTempError = true;
    if (WiFi.isConnected()) {
     // last is not working
-    adafruitClient.begin("http://io.adafruit.com/api/v2/delhoume/feeds/temperature/data?include=value&limit=1");
+     adafruitClient.begin(wclient, "http://io.adafruit.com/api/v2/delhoume/feeds/temperature/data?include=value&limit=1");
       if (adafruitClient.GET()) {
         String json = adafruitClient.getString();
 

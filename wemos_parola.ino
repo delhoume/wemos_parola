@@ -511,10 +511,10 @@ void getIGFollowers() {
   if ((lastIGQuery == 0) || ((millis() - lastIGQuery) >= 30 * 60 * 1000)) { // every 30 mn
     igError = true;
    if (WiFi.isConnected()) {
- //   igClient.setFingerprint(fingerprint);
+    igClient.setFingerprint(fingerprint);
   //  igClient.setInsecure();
     if (igClient.connect(HOST_INSTA, 443)) { // very slow ! why ?
-    igClient.verify(fingerprint, HOST_INSTA);
+   // igClient.verify(fingerprint, HOST_INSTA);
 //      Serial.println("Connected");
       igClient.print(String("GET /v1/users/self/?access_token=") + INSTA_ACCESS_TOKEN +
                             " HTTP/1.1\r\n" +
@@ -576,13 +576,13 @@ void getQuotes() {
   if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 15 * 60 * 1000)) { // every 15 mn
     stocksError = true;
    if (WiFi.isConnected()) {
-      //iexClient.setFingerprint(fingerprintIEX); 
+      iexClient.setFingerprint(fingerprintIEX); 
      // iexClient.setInsecure();
  //     iexClient.setTimeout(10);
 //      long tt = millis();
       if (iexClient.connect(HOST_STOCKS, 443)) { // very slow ! > 2 seconds
  //       Serial.print("connect time : "); Serial.println(millis() - tt); tt = millis();
-          iexClient.verify(fingerprintIEX, HOST_STOCKS);
+  //        iexClient.verify(fingerprintIEX, HOST_STOCKS);
           String json;
            iexClient.print(String("GET /1.0/stock/market/batch?symbols=aapl,amzn,goog,ibm,msft&types=price") +
                   " HTTP/1.1\r\n" +

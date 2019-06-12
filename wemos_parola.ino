@@ -130,11 +130,11 @@ const char INDEX_HTML[] =
 "</head>"
 "<body>"
 "<h1>Enter text</h1>"
-"<FORM action=\"/\" method=\"post\">"
-"<P>"
-"<INPUT type=\"text\" name=\"value\"><BR>"
-"</P>"
-"</FORM>"
+"<form action=\"/\" method=\"post\">"
+"<p>"
+"<input type=\"text\" name=\"value\"><br>"
+"</p>"
+"</form>"
 "</body>"
 "</html>";
 

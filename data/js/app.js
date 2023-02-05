@@ -20,36 +20,43 @@ $(document).ready(function() {
     
     var displayBitcoin = $("#displayBitcoin");
     // get current value
-    /*
+    
     $.get(url + "all", function(data) {
+        alert(data);
         // TODO: direct JSON access
-        var json = JSON.parse(data);
+        var obj = JSON.parse(data);
         // ....
-        $.each(data, function(index, field) {
-            if (index == "speed") {
-                setSpeed(scrollingspeed, scrollingspeedtext, field);
-            } else if (index == "displayBitcoin) {
-                displayBitcoin.value = field;
-            }
-        });
-    */
-    setSpeed(scrollingspeed, scrollingspeedtext, 70);
-    setIntensity(intensity, intensitytext, 5);
+        setSpeed(scrollingspeed, scrollingspeedtext, obj.speed);
+        setIntensity(intensity, intensitytext, obj.intensity);
+    });
+    
+    //setSpeed(scrollingspeed, scrollingspeedtext, 70);
+    //setIntensity(intensity, intensitytext, 5);
     // does not work
     displayBitcoin.checked = true;
 
-    scrollingspeed.on("change mousemove", function() {
-       // post value
-       //$.post(url + "speed?value=" + this.value);
+    scrollingspeed.on("change", function() {
+       delayPostValue("speed", this.value);
        setSpeed(null, scrollingspeedtext, this.value);
     });
-    intensity.on("change mousemove", function() {
-        // post value
-        //$.post(url + "speed?value=" + this.value);
+    intensity.on("change", function() {
+        delayPostValue("intensity", this.value);
         setIntensity(null, intensitytext, this.value);
      });
  
     displayBitcoin.on("change", function() {
-        $.post(url + "/displayBitcoin?value=", this.value);
+        $.post(url + "displayBitcoin?value=", this.value);
     });
 })
+
+function delayPostValue(name, value) {
+    clearTimeout(postValueTimer);
+    postValueTimer = setTimeout(function() {
+      postValue(name, value);
+    }, 300);
+  }
+
+  function postValue(name, value) {
+    var body = { name: name, value: value };
+    $.post(url + name + "?value=" + value, body);
+  }

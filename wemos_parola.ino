@@ -1,3 +1,7 @@
+// works with esp8266 core 3.0.2
+// does not work with 3.1.1 because of httpsrequest
+
+
 #include <MD_Parola.h>
 #include "ASCII_Font_Data.h"
 #include "Numeric7seg_Font_data.h"
@@ -6,9 +10,8 @@
 #include <WiFiManager.h>
 #include <ArduinoOTA.h>
 #include <WiFiUdp.h>
-//#include <ESP8266mDNS.h>
+#include <ESP8266mDNS.h>
 #include <ESP8266HTTPClient.h>
-//#include <DNSServer.h>
 #include <ESP8266WebServer.h>
 #include <WiFiClient.h>
 
@@ -17,8 +20,7 @@
 #include <JsonListener.h>
 #include <JsonStreamingParser.h>
 
-#include <FS.h>
-
+#include <uptime.h>
 #include <uptime_formatter.h>
 #include <Timezone.h>
 
@@ -34,13 +36,14 @@ MD_Parola P = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
 #define PAUSE_TIME 0
 #define SPEED_TIME 60
 
-char timeBuffer[12];
+char timeBuffer[24];
 char scrollBuffer[256]; // maybe a bit large...
 
 uint8_t degC[] = { 6, 3, 3, 56, 68, 68, 68 };	 // Deg C
 uint8_t euro[] = { 6, 20, 62, 85, 85, 65, 34 };  // 'Euro sign'
 uint8_t bitcoin[] = { 5, 127, 73, 255, 73, 54 };
 uint8_t insta[] = { 8, 126, 129, 153, 165, 165, 153, 129, 126 }; // Instagram icon
+uint8_t ethereum[] = { 5, 73, 73, 73, 73, 73 };
 
 typedef void (*DISPLAYFUN)();
 
@@ -77,9 +80,11 @@ void initOTA() {
     sprintf(buffer, "OTA: %.2d %%", realprogress);
     P.print(buffer);
   });
-  ArduinoOTA.onError([](ota_error_t error) {});
+  ArduinoOTA.onError([](ota_error_t) {});
   ArduinoOTA.begin();
 }
+
+void initOWM();
 
 unsigned int localPort = 2390;      // local port to listen for UDP packets
 IPAddress timeServerIP; // time.nist.gov NTP server address
@@ -91,7 +96,7 @@ WiFiUDP udp;
 
 void sendNTPpacket(IPAddress& address) {
   if (WiFi.isConnected()) {
- //   Serial.println("Requesting NTP");
+    //   Serial.println("Requesting NTP");
     memset(packetBuffer, 0, NTP_PACKET_SIZE);
     packetBuffer[0] = 0b11100011;   // LI, Version, Mode
     udp.beginPacket(address, 123); //NTP requests are to port 123
@@ -108,7 +113,7 @@ time_t getNtpTime() {
   while (millis() - beginWait < 1500) {
     int size = udp.parsePacket();
     if (size >= NTP_PACKET_SIZE) {
- //     Serial.println("Receive NTP Response");
+      //     Serial.println("Receive NTP Response");
       udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer
@@ -119,45 +124,69 @@ time_t getNtpTime() {
       return secsSince1900 - 2208988800UL;
     }
   }
-//  Serial.println("No NTP Response :-(");
+  //  Serial.println("No NTP Response :-(");
   return 0; // return 0 if unable to get the time
 }
 
 ESP8266WebServer webServer(80);       // Create a webserver object that listens for HTTP request on port 80
 
-char textBuffer[128] = { 0 };
+char textBuffer[128] = "";
+char defaultTextBuffer[128] = "Walt \x26 Lip sont deux gentils chats (en g\xE9n\xE9ral)";
 
 const char* days[] = { "Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"  };
-const char* monthes[] = { "Janvier", "F\xE9vrier", "Mars", "Avril", "Mai", "Juin", "Juillet", 
-                          "Ao\xFBt", "Septembre", "Octobre", "Novembre", "D\xE9""cembre" };
+const char* monthes[] = { "Janvier", "F\xE9vrier", "Mars", "Avril", "Mai", "Juin", "Juillet",
+                          "Ao\xFBt", "Septembre", "Octobre", "Novembre", "D""\xE9""cembre"
+                        };
 
+void initText() {
+  strcpy(textBuffer, defaultTextBuffer);
+}
 
-int speed = 50;
-int intensity = 0;
-bool isBitcoinDisplayed = true;
+uint16_t defaultSpeed = 35;
+uint16_t speed = defaultSpeed;
 
+uint8_t defaultIntensity = 0;
+uint8_t intensity = defaultIntensity;
 
-void setParolaSpeed(int value) {
+void setParolaSpeed(uint16_t value) {
   speed = value;
   P.setSpeed(speed);
 }
 
-void setParolaIntensity(int value) {
-  intensity = value;
-    P.setIntensity(0, intensity); // 0 to 15 for red
-    P.setIntensity(1, intensity + 3); // green is dimmer ?
+void decParolaSpeed() {
+  setParolaSpeed(speed + 5);
 }
 
+void incParolaSpeed() {
+  setParolaSpeed(speed > 10 ? speed - 5 : speed);
+}
+
+void setParolaIntensity(uint8_t value) {
+  intensity = constrain(value, 0, 15);
+  P.setIntensity(0, intensity); // 0 to 15 for red
+  P.setIntensity(1, intensity + 3); // green is dimmer ?
+}
+
+String logString("");
+
+void log(String log) {
+  //  logString += log;
+  Serial.println(log);
+}
+
+// ticker.local
+String dnsname("ticker");
+
 void setup(void) {
-  Serial.begin(57600);
-  setParolaIntensity(0);
+  Serial.begin(115200);
   P.begin();
+  setParolaIntensity(0);
   P.print("Wifi...");
 
 #if 1
   WiFiManager wifiManager;
   wifiManager.setConfigPortalTimeout(120);
-  // wifiManager.setDebugOutput(true);
+  wifiManager.setDebugOutput(true);
   wifiManager.setMinimumSignalQuality(30);
   wifiManager.autoConnect("ticker"); //  no password
 #else
@@ -171,64 +200,99 @@ void setup(void) {
     Serial.print(++i); Serial.print(' ');
   }
 #endif
-  
+
   strcpy(timeBuffer, "--:--");
   strcpy(scrollBuffer, "Fred");
-  WiFi.setAutoReconnect (true);
   if (WiFi.isConnected()) {
+    Serial.setDebugOutput(true);
+    WiFi.setAutoReconnect (true);
+    WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected & event) {
+      Serial.println(String("Station disconnected ") + event.reason);
+    });
+    WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP&) {
+      Serial.print("Station connected, IP: ");
+      Serial.println(WiFi.localIP());
+    });
+
     initOTA();
     initOWM();
-    // start file system
-    SPIFFS.begin();
- //   MDNS.begin("ticker"); not useful
+
+    MDNS.begin(dnsname.c_str());
     udp.begin(localPort);
-    
+
     setSyncProvider(getNtpTime);
-    setSyncInterval(3600);
+    setSyncInterval(3600 * 10); // every 10 hours
 
-    strcpy(scrollBuffer, WiFi.localIP().toString().c_str());
+    String ipinfo = WiFi.localIP().toString() + String(" (") + dnsname + String(".local)");
+    strcpy(scrollBuffer, ipinfo.c_str());
 
-    // REST APIs 
+    // REST APIs
 
     // returns all parameters as JSON
-    webServer.on("/all", HTTP_GET, []() {
-      DynamicJsonDocument doc(100);
+    webServer.on("/", HTTP_GET, []() {
+      DynamicJsonDocument doc(256);
+      doc["uptime"] = uptime_formatter::getUptime();
       doc["speed"] = speed;
-      doc["customtext"] = "";
-      doc["displayBitcoin"] = isBitcoinDisplayed;
+      doc["text"] = textBuffer;
       doc["intensity"] = intensity;
-      char json[128];
+      std::string json;
       serializeJsonPretty(doc, json);
-      webServer.send(200, "text/json", json);
+      json += "\n\n";
+//      json += "/speed?value=5-100   lower is faster - no value resets to default (" + std::to_string(defaultSpeed) + ")\n";
+      json += "/incspeed\n";
+      json += "/decspeed\n";
+//      json += "/intensity?value=0-15 lower is darker - no value resets to default (" + std::to_string(defaultIntensity) + ")\n";
+      json += "/text?value=TEXT      no value resets to default\n";
+      webServer.send(200, "text/plain", json.c_str());
     });
 
     // speed?value=5
-    webServer.on("/speed", HTTP_POST, []() {
-      String value = webServer.arg("value");
-      speed = value.toInt();
-      setParolaSpeed(speed);
+    webServer.on("/speed", HTTP_GET, []() {
+      if (webServer.hasArg("value")) {
+        String value = webServer.arg("value");
+        setParolaSpeed((uint16_t)value.toInt());
+      } else {
+        setParolaSpeed(defaultSpeed);
+      }
+      webServer.send(200, "text/plain", String(speed));
     });
 
-      // intensity?value=5
-    webServer.on("/intensity", HTTP_POST, []() {
-      String value = webServer.arg("value");
-      intensity = value.toInt();
-      setParolaIntensity(intensity);
+    webServer.on("/incspeed", HTTP_GET, []() {
+      incParolaSpeed();
+      webServer.send(200, "text/plain", String(speed));
     });
-    // customtext?value=text
-    webServer.on("/customtext", HTTP_POST, []() {
+    webServer.on("/decspeed", HTTP_GET, []() {
+      decParolaSpeed();
+      webServer.send(200, "text/plain", String(speed));
+    });
+
+    // intensity?value=5
+    webServer.on("/intensity", HTTP_GET, []() {
+      if (webServer.hasArg("value")) {
+        String value = webServer.arg("value");
+        setParolaIntensity(value.toInt());
+      } else {
+        setParolaIntensity(defaultIntensity);
+      }
+      webServer.send(200, "text/plain", String(intensity));
+    });
+    // text?value=text
+    // text to reset
+    webServer.on("/text", HTTP_GET, []() {
       if (webServer.hasArg("value")) {
         strcpy(textBuffer, webServer.arg("value").c_str());
+      } else {
+        initText();
       }
+      webServer.send(200, "text/plain", String(textBuffer));
     });
-    webServer.on("/displayBitcoin", HTTP_POST, []() {
-      String value = webServer.arg("value");
-      isBitcoinDisplayed = value == "true";
+    webServer.on("/log", HTTP_GET, []() {
+      webServer.send(200, "text/plain", logString);
     });
+
     // serve pages from SPIFFS
-    webServer.serveStatic("/", SPIFFS, "/", "max-age=86400");
     webServer.begin();
- }
+  }
 
   // Parola object
   P.begin(2);
@@ -244,8 +308,8 @@ void setup(void) {
   P.setCharSpacing(1, 0);
   P.setCharSpacing(0, 1);
 
-  P.displayZoneText(1, timeBuffer, PA_LEFT, SPEED_TIME, PAUSE_TIME, PA_PRINT, PA_NO_EFFECT);
-  P.displayZoneText(0, scrollBuffer, PA_LEFT, SPEED_TIME, PAUSE_TIME, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+  P.displayZoneText(1, timeBuffer, PA_LEFT, speed, PAUSE_TIME, PA_PRINT, PA_NO_EFFECT);
+  P.displayZoneText(0, scrollBuffer, PA_LEFT, speed, PAUSE_TIME, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
   //P.displayZoneText(0, scrollBuffer, PA_CENTER, SPEED_TIME, 0, PA_SPRITE, PA_SPRITE);
   //P.setSpriteData(0, invader, W_INVADER, F_INVADER, invader, W_INVADER, F_INVADER);
 
@@ -253,52 +317,56 @@ void setup(void) {
   P.addChar(0, '^', euro);
   P.addChar(0, '#', bitcoin);
   P.addChar(0, ';', insta);
+  P.addChar(0, '|', ethereum);
+
+  initText();
 }
 
 
 void displayDate() {
-    time_t utc = now(); // triggers update if necessary
-    time_t local = CE.toLocal(utc, &tcr);
-    int wd = weekday(local);
-    int d = day(local);
-    int m = month(local);
-    sprintf(scrollBuffer, "%s %d %s", days[wd - 1], d, monthes[m - 1]);
+  time_t utc = now(); // triggers update if necessary
+  time_t local = CE.toLocal(utc, &tcr);
+  int wd = weekday(local);
+  int d = day(local);
+  int m = month(local);
+  sprintf(scrollBuffer, "%s %d %s", days[wd - 1], d, monthes[m - 1]);
 }
 
-HTTPClient owm;
+String getHttpsContents(const char* host, const char* rest, const char* fingerprint = 0);
+
 WiFiClient wclient;
 
 struct WeatherInfo {
-  float temperature;
-  boolean error;
-  char description[32];
-  char fulldescription[64];
+  float temperature = -100;
+  char description[32] = { 0 };
+  char fulldescription[64] = { 0 };
 };
 
 struct WeatherInfo OWMInfo;
 
-const char* owmApiKey    = "95b2ed7cdfc0136948c0a9d499f807eb";
+const char* owmApiKey    = "a300cf2dc95e477a855786b812a4aec9";
 const char* owmArcueilId = "6613168";
 const char* owmLang      = "fr"; // fr encodes accents in utf8, not easy to convert
 
 char owmURL[128];
 
 void initOWM() {
-  sprintf(owmURL, 
-    "http://api.openweathermap.org/data/2.5/weather?id=%s&lang=%s&appid=%s&units=metric", 
-    owmArcueilId, 
-    owmLang, 
-    owmApiKey);
-    OWMInfo.error = true;
+  sprintf(owmURL,
+          "http://api.openweathermap.org/data/2.5/weather?id=%s&lang=%s&appid=%s&units=metric",
+          owmArcueilId,
+          owmLang,
+          owmApiKey);
+  OWMInfo.temperature = -100;
 }
+
 /* UTF-8 to ISO-8859-1/ISO-8859-15 mapper.
- * Return 0..255 for valid ISO-8859-15 code points, 256 otherwise.
+   Return 0..255 for valid ISO-8859-15 code points, 256 otherwise.
 */
 static inline unsigned int to_latin9(const unsigned int code) {
-    /* Code points 0 to U+00FF are the same in both. */
-    if (code < 256U)
-        return code;
-    switch (code) {
+  /* Code points 0 to U+00FF are the same in both. */
+  if (code < 256U)
+    return code;
+  switch (code) {
     case 0x0152U: return 188U; /* U+0152 = 0xBC: OE ligature */
     case 0x0153U: return 189U; /* U+0153 = 0xBD: oe ligature */
     case 0x0160U: return 166U; /* U+0160 = 0xA6: S with caron */
@@ -308,114 +376,108 @@ static inline unsigned int to_latin9(const unsigned int code) {
     case 0x017EU: return 184U; /* U+017E = 0xB8: z with caron */
     case 0x20ACU: return 164U; /* U+20AC = 0xA4: Euro */
     default:      return 256U;
-    }
+  }
 }
 
 /* Convert an UTF-8 string to ISO-8859-15.
- * All invalid sequences are ignored.
- * Note: output == input is allowed,
- * but   input < output < input + length
- * is not.
- * Output has to have room for (length+1) chars, including the trailing NUL byte.
+   All invalid sequences are ignored.
+   Note: output == input is allowed,
+   but   input < output < input + length
+   is not.
+   Output has to have room for (length+1) chars, including the trailing NUL byte.
 */
 size_t utf8_to_latin9(char *const output, const char *const input, const size_t length) {
-    unsigned char             *out = (unsigned char *)output;
-    const unsigned char       *in  = (const unsigned char *)input;
-    const unsigned char *const end = (const unsigned char *)input + length;
-    unsigned int               c;
+  unsigned char             *out = (unsigned char *)output;
+  const unsigned char       *in  = (const unsigned char *)input;
+  const unsigned char *const end = (const unsigned char *)input + length;
+  unsigned int               c;
 
-    while (in < end)
-        if (*in < 128)
-            *(out++) = *(in++); /* Valid codepoint */
-        else
-        if (*in < 192)
-            in++;               /* 10000000 .. 10111111 are invalid */
-        else
-        if (*in < 224) {        /* 110xxxxx 10xxxxxx */
-            if (in + 1 >= end)
-                break;
-            if ((in[1] & 192U) == 128U) {
-                c = to_latin9( (((unsigned int)(in[0] & 0x1FU)) << 6U)
-                             |  ((unsigned int)(in[1] & 0x3FU)) );
-                if (c < 256)
-                    *(out++) = c;
-            }
-            in += 2;
+  while (in < end)
+    if (*in < 128)
+      *(out++) = *(in++); /* Valid codepoint */
+    else if (*in < 192)
+      in++;               /* 10000000 .. 10111111 are invalid */
+    else if (*in < 224) {       /* 110xxxxx 10xxxxxx */
+      if (in + 1 >= end)
+        break;
+      if ((in[1] & 192U) == 128U) {
+        c = to_latin9( (((unsigned int)(in[0] & 0x1FU)) << 6U)
+                       |  ((unsigned int)(in[1] & 0x3FU)) );
+        if (c < 256)
+          *(out++) = c;
+      }
+      in += 2;
 
-        } else
-        if (*in < 240) {        /* 1110xxxx 10xxxxxx 10xxxxxx */
-            if (in + 2 >= end)
-                break;
-            if ((in[1] & 192U) == 128U &&
-                (in[2] & 192U) == 128U) {
-                c = to_latin9( (((unsigned int)(in[0] & 0x0FU)) << 12U)
-                             | (((unsigned int)(in[1] & 0x3FU)) << 6U)
-                             |  ((unsigned int)(in[2] & 0x3FU)) );
-                if (c < 256)
-                    *(out++) = c;
-            }
-            in += 3;
+    } else if (*in < 240) {       /* 1110xxxx 10xxxxxx 10xxxxxx */
+      if (in + 2 >= end)
+        break;
+      if ((in[1] & 192U) == 128U &&
+          (in[2] & 192U) == 128U) {
+        c = to_latin9( (((unsigned int)(in[0] & 0x0FU)) << 12U)
+                       | (((unsigned int)(in[1] & 0x3FU)) << 6U)
+                       |  ((unsigned int)(in[2] & 0x3FU)) );
+        if (c < 256)
+          *(out++) = c;
+      }
+      in += 3;
 
-        } else
-        if (*in < 248) {        /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
-            if (in + 3 >= end)
-                break;
-            if ((in[1] & 192U) == 128U &&
-                (in[2] & 192U) == 128U &&
-                (in[3] & 192U) == 128U) {
-                c = to_latin9( (((unsigned int)(in[0] & 0x07U)) << 18U)
-                             | (((unsigned int)(in[1] & 0x3FU)) << 12U)
-                             | (((unsigned int)(in[2] & 0x3FU)) << 6U)
-                             |  ((unsigned int)(in[3] & 0x3FU)) );
-                if (c < 256)
-                    *(out++) = c;
-            }
-            in += 4;
+    } else if (*in < 248) {       /* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
+      if (in + 3 >= end)
+        break;
+      if ((in[1] & 192U) == 128U &&
+          (in[2] & 192U) == 128U &&
+          (in[3] & 192U) == 128U) {
+        c = to_latin9( (((unsigned int)(in[0] & 0x07U)) << 18U)
+                       | (((unsigned int)(in[1] & 0x3FU)) << 12U)
+                       | (((unsigned int)(in[2] & 0x3FU)) << 6U)
+                       |  ((unsigned int)(in[3] & 0x3FU)) );
+        if (c < 256)
+          *(out++) = c;
+      }
+      in += 4;
 
-        } else
-        if (*in < 252) {        /* 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
-            if (in + 4 >= end)
-                break;
-            if ((in[1] & 192U) == 128U &&
-                (in[2] & 192U) == 128U &&
-                (in[3] & 192U) == 128U &&
-                (in[4] & 192U) == 128U) {
-                c = to_latin9( (((unsigned int)(in[0] & 0x03U)) << 24U)
-                             | (((unsigned int)(in[1] & 0x3FU)) << 18U)
-                             | (((unsigned int)(in[2] & 0x3FU)) << 12U)
-                             | (((unsigned int)(in[3] & 0x3FU)) << 6U)
-                             |  ((unsigned int)(in[4] & 0x3FU)) );
-                if (c < 256)
-                    *(out++) = c;
-            }
-            in += 5;
+    } else if (*in < 252) {       /* 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
+      if (in + 4 >= end)
+        break;
+      if ((in[1] & 192U) == 128U &&
+          (in[2] & 192U) == 128U &&
+          (in[3] & 192U) == 128U &&
+          (in[4] & 192U) == 128U) {
+        c = to_latin9( (((unsigned int)(in[0] & 0x03U)) << 24U)
+                       | (((unsigned int)(in[1] & 0x3FU)) << 18U)
+                       | (((unsigned int)(in[2] & 0x3FU)) << 12U)
+                       | (((unsigned int)(in[3] & 0x3FU)) << 6U)
+                       |  ((unsigned int)(in[4] & 0x3FU)) );
+        if (c < 256)
+          *(out++) = c;
+      }
+      in += 5;
 
-        } else
-        if (*in < 254) {        /* 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
-            if (in + 5 >= end)
-                break;
-            if ((in[1] & 192U) == 128U &&
-                (in[2] & 192U) == 128U &&
-                (in[3] & 192U) == 128U &&
-                (in[4] & 192U) == 128U &&
-                (in[5] & 192U) == 128U) {
-                c = to_latin9( (((unsigned int)(in[0] & 0x01U)) << 30U)
-                             | (((unsigned int)(in[1] & 0x3FU)) << 24U)
-                             | (((unsigned int)(in[2] & 0x3FU)) << 18U)
-                             | (((unsigned int)(in[3] & 0x3FU)) << 12U)
-                             | (((unsigned int)(in[4] & 0x3FU)) << 6U)
-                             |  ((unsigned int)(in[5] & 0x3FU)) );
-                if (c < 256)
-                    *(out++) = c;
-            }
-            in += 6;
+    } else if (*in < 254) {       /* 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
+      if (in + 5 >= end)
+        break;
+      if ((in[1] & 192U) == 128U &&
+          (in[2] & 192U) == 128U &&
+          (in[3] & 192U) == 128U &&
+          (in[4] & 192U) == 128U &&
+          (in[5] & 192U) == 128U) {
+        c = to_latin9( (((unsigned int)(in[0] & 0x01U)) << 30U)
+                       | (((unsigned int)(in[1] & 0x3FU)) << 24U)
+                       | (((unsigned int)(in[2] & 0x3FU)) << 18U)
+                       | (((unsigned int)(in[3] & 0x3FU)) << 12U)
+                       | (((unsigned int)(in[4] & 0x3FU)) << 6U)
+                       |  ((unsigned int)(in[5] & 0x3FU)) );
+        if (c < 256)
+          *(out++) = c;
+      }
+      in += 6;
 
-        } else
-            in++;               /* 11111110 and 11111111 are invalid */
+    } else
+      in++;               /* 11111110 and 11111111 are invalid */
 
-    /* Terminate the output string. */
-    *out = '\0';
-    return (size_t)(out - (unsigned char *)output);
+  /* Terminate the output string. */
+  *out = '\0';
+  return (size_t)(out - (unsigned char *)output);
 }
 
 void displayHexString(const char* string) {
@@ -429,16 +491,18 @@ void displayHexString(const char* string) {
   Serial.println();
 }
 
+unsigned long lastOWMQuery = 0;
+
 void getOWMInfo() {
-  static long lastOWMQuery = 0;
-  if ((lastOWMQuery == 0) || ((millis() - lastOWMQuery) >= 15 * 60 * 1000)) { // every 10 mn
-    OWMInfo.error = true;
+  if ((lastOWMQuery == 0) || ((millis() - lastOWMQuery) >= 6 * 60 * 1000)) { // every 6 mn
+    lastOWMQuery = millis();
     if (WiFi.isConnected()) {
+      HTTPClient owm;
       owm.begin(wclient, owmURL);
       if (owm.GET()) {
         String json = owm.getString();
-//        Serial.println(json);
-//       Serial.println(json.length());
+        //        Serial.println(json);
+        //       Serial.println(json.length());
         DynamicJsonDocument doc(2048);
         auto result = deserializeJson(doc, json);
         if (!result) {
@@ -446,326 +510,651 @@ void getOWMInfo() {
           OWMInfo.temperature = round(temp);
           JsonObject weather = doc["weather"][0];
           strcpy(OWMInfo.description, weather["main"]);
-          static char utf8buf[64];
+          char utf8buf[64];
           strcpy(utf8buf, weather["description"]);
-           utf8_to_latin9(OWMInfo.fulldescription, utf8buf, strlen(utf8buf));
-     //      displayHexString(OWMInfo.fulldescription);
-     //      Serial.println(OWMInfo.temperature);
-          OWMInfo.error = false;
+          utf8_to_latin9(OWMInfo.fulldescription, utf8buf, strlen(utf8buf));
+          //      displayHexString(OWMInfo.fulldescription);
+          //      Serial.println(OWMInfo.temperature);
         }
       }
       owm.end();
     }
-    lastOWMQuery = millis();
   }
- }
+}
 
 void displayTemp() {
   getOWMInfo();
-  if (OWMInfo.error == false) {
+  if (OWMInfo.temperature != -100) {
     sprintf(scrollBuffer, "Temp\xE9rature ext\xE9rieure : %d$", (int)OWMInfo.temperature);
-  } else {
-   strcpy(scrollBuffer, "");   
-  }
-}
-
-void displayDescription() {
-  getOWMInfo();
-  if (OWMInfo.error == false) {
-    sprintf(scrollBuffer, "%s", OWMInfo.fulldescription);
-    scrollBuffer[0] = toupper(scrollBuffer[0]);
-  } else {
-   strcpy(scrollBuffer, "");   
-  } 
-}
-
-const char* bitcoinURL = "http://api.coindesk.com/v1/bpi/currentprice/EUR.json";
-boolean btcError = true;
-float btcValue = -1.0;
-
-
-void getBitcoin() {
-  static long lastBTCQuery = 0;
-  if ((lastBTCQuery == 0) || ((millis() - lastBTCQuery) >= 10 * 60 * 1000)) { // every 10 mn
-   btcError = true;
-   if (WiFi.isConnected()) {
-      owm.begin(wclient, bitcoinURL);
-      if (owm.GET()) {
-        String json = owm.getString();
-       //Serial.println(json);
-       //Serial.println(json.length());
-        DynamicJsonDocument doc(1024);
-        auto result = deserializeJson(doc, json);
-        if (!result) {
-            btcValue = doc["bpi"]["EUR"]["rate_float"]; 
-            btcError = false;
-        }
-      }
-      owm.end();
-    }
-    lastBTCQuery = millis();
-  }
-}
-
-
-void displayBitcoin() {
-  if (!isBitcoinDisplayed)
-     return;
-  getBitcoin();
-  if (btcError == false) {
-    sprintf(scrollBuffer, "#itcoin : %d ^", (int)btcValue);
   } else {
     strcpy(scrollBuffer, "");
   }
 }
 
+void displayDescription() {
+  getOWMInfo();
+  if (OWMInfo.fulldescription[0] != 0) {
+    sprintf(scrollBuffer, "%s", OWMInfo.fulldescription);
+    scrollBuffer[0] = toupper(scrollBuffer[0]);
+  } else {
+    strcpy(scrollBuffer, "");
+  }
+}
+
+/*
+const char* bitcoinURL = "http://api.coindesk.com/v1/bpi/currentprice/EUR.json";
+int btcValue = -1;
+int oldBtcValue = -1;
+unsigned long lastBTCQuery = 0;
+
+void getBitcoin() {
+  if ((lastBTCQuery == 0) || ((millis() - lastBTCQuery) >= 16 * 60 * 1000)) { // every 16 mn
+    lastBTCQuery = millis();
+    if (WiFi.isConnected()) {
+      HTTPClient bitcoin_client;
+      //      Serial.println(bitcoinURL);
+      if (bitcoin_client.begin(wclient, bitcoinURL) == true) {
+        if (bitcoin_client.GET()) {
+          String json = bitcoin_client.getString();
+          //          Serial.println(json);
+          //Serial.println(json.length());
+          DynamicJsonDocument doc(1024);
+          auto result = deserializeJson(doc, json);
+          if (!result) {
+            oldBtcValue = btcValue;
+            btcValue = (int)doc["bpi"]["EUR"]["rate_float"];
+          }
+        }
+      } else {
+        //        Serial.println("No connection");
+      }
+      bitcoin_client.end();
+    }
+  }
+}
+
+
+void displayBitcoin() {
+  getBitcoin();
+  if (btcValue > -1) {
+    int slen = sprintf(scrollBuffer, "#itcoin : %d ^", btcValue);
+    if (oldBtcValue != -1) {
+      if (btcValue > oldBtcValue) {
+        scrollBuffer[slen] = 24;
+      } else if (btcValue < oldBtcValue) {
+        scrollBuffer[slen] = 25;
+      } else {
+        scrollBuffer[slen] = 18;
+      }
+      scrollBuffer[slen + 1] = 0;
+    }
+  } else {
+    strcpy(scrollBuffer, "");
+  }
+}
+
+
+const char* ETHER_HOST = "api.coinbase.com";
+const char* ETHER_REST = "/v2/prices/ETH-EUR/spot";
+
+
+int ethValue = -1;
+int oldEthValue = -1;
+unsigned long lastETHQuery = 0;
+
+void getEthereum() {
+  if ((lastETHQuery == 0) || ((millis() - lastETHQuery) >= 19 * 60 * 1000)) { // every 19 mn
+    lastETHQuery = millis();
+    if (WiFi.isConnected()) {
+      //  strange, contents starts with 3b\n !
+      String json = getHttpsContents(ETHER_HOST, ETHER_REST).substring(2);
+      //         log(json);
+      DynamicJsonDocument doc(1024);
+      auto result = deserializeJson(doc, json);
+      if (!result) {
+        oldEthValue = ethValue;
+        ethValue = (int)doc["data"]["amount"];
+      }
+    } else {
+      //         log("No connection");
+    }
+  }
+}
+
+
+void displayEthereum() {
+  getEthereum();
+  if (ethValue > -1) {
+    int slen = sprintf(scrollBuffer, "|thereum : %d ^", ethValue);
+    if (oldEthValue != -1) {
+      if (ethValue > oldEthValue) {
+        scrollBuffer[slen] = 24;
+      } else if (ethValue < oldEthValue) {
+        scrollBuffer[slen] = 25;
+      } else {
+        scrollBuffer[slen] = 18;
+      }
+      scrollBuffer[slen + 1] = 0;
+    }
+  } else {
+    strcpy(scrollBuffer, "");
+  }
+}
+*/
+
+const char* cryptoHOST = "api.coingecko.com";
+const char* cryptoREST = "/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=eur&include_24hr_change=true";
+int btcValue = -1;
+int ethValue = -1;
+float btcChange;
+float ethChange;
+
+unsigned long lastCryptoQuery = 0;
+
+void getCryptos() {
+  if ((lastCryptoQuery == 0) || ((millis() - lastCryptoQuery) >= 16 * 60 * 1000)) { // every 8 mn
+    lastCryptoQuery = millis();
+    btcValue = -1;
+    ethValue = -1;
+   if (WiFi.isConnected()) {
+      String json = getHttpsContents(cryptoHOST, cryptoREST).substring(2);
+ //    Serial.println(json);
+          StaticJsonDocument<192> doc;
+          DeserializationError error = deserializeJson(doc, json);
+          if (error) {
+            Serial.println(error.f_str());
+         } else {
+             btcValue = (int)doc["bitcoin"]["eur"];
+             ethValue = (int)doc["ethereum"]["eur"];
+             btcChange = doc["bitcoin"]["eur_24h_change"]; 
+             ethChange = doc["ethereum"]["eur_24h_change"]; 
+           } 
+        } 
+      } 
+    }
+
+void displayCryptos() {
+  getCryptos();
+  if (btcValue != -1) {
+    sprintf(scrollBuffer, "#itcoin : %d %c     |thereum : %d %c", btcValue, btcChange >= 0 ? 24 : 25, ethValue, ethChange >= 0 ? 24 : 25);
+  } else {
+    strcpy(scrollBuffer, "");
+  }
+}
 void displayAllChars() {
   uint16_t idx;
   for (idx = 1; idx < 256; ++idx) {
     scrollBuffer[idx] = idx;
   }
-  scrollBuffer[idx] = 0;
+  scrollBuffer[255] = 0;
 }
 
-#define RESP_BUFFER_LENGTH 256
-uint8_t _buffer[RESP_BUFFER_LENGTH];
-
-int igFollowers;
-boolean igError;
-
-WiFiClientSecure igClient;
+int igFollowers = -1;
 
 #define INSTA_HOST "www.instagram.com"
 #define INSTA_SSL_PORT 443
+#define INSTA_CERT "8A 01 23 CA E3 B8 00 5C 2F 31 9F DE D5 5E 13 B6 4A 2A BE 1D"
 
 String currentKey = "";
 String currentParent = "";
 
 class InstagramUserListener : public JsonListener {
- public:
-  virtual void whitespace(char c) {}
-  virtual void startDocument() {}
-  virtual void key(String key)  {
-    currentKey = key;
-  }
-  virtual void value(String value) {
-    if (currentParent == "edge_followed_by") {
-      if (currentKey == "count") {
-        igFollowers = value.toInt();
-//        Serial.println(String("followers ") + igFollowers);
+  public:
+    int _followers;
+    InstagramUserListener() : _followers(-1) {};
+    virtual void whitespace(char) {}
+    virtual void startDocument() {}
+    virtual void key(String key)  {
+      currentKey = key;
+    }
+    virtual void value(String value) {
+      Serial.println(value);
+      if (currentParent == "edge_followed_by") {
+        Serial.println("Found edge_followed_by");
+        if (currentKey == "count") {
+          Serial.println("Found count");
+          _followers = value.toInt();
+        }
       }
     }
-  }
-  virtual void endArray() {}
-  virtual void endObject() {}
-  virtual void endDocument() {}
-  virtual void startArray() {}
-  virtual void startObject() {
-    currentParent = currentKey;
-  }
+    virtual void endArray() {}
+    virtual void endObject() {}
+    virtual void endDocument() {}
+    virtual void startArray() {}
+    virtual void startObject() {
+      currentParent = currentKey;
+    }
 };
 
+unsigned long lastIGQuery = 0;
+
 void getIGFollowers() {
-  igClient.setInsecure();
-  static long lastIGQuery = 0;
-  if ((lastIGQuery == 0) || ((millis() - lastIGQuery) >= 30 * 60 * 1000)) { // every 30 mn
-    igError = true;
-    igFollowers = -1;
-    if (igClient.connect(INSTA_HOST, INSTA_SSL_PORT)) {
-  //    Serial.println(".... connected to server");
-  
-      igClient.print(String("GET /fdelhoume/?__a=1") + " HTTP/1.1\r\n" + 
-                            "Host: " + INSTA_HOST + "\r\n" + 
-                       //      "User-Agent: arduino/1.0.0\r\n" +
-                             "Connection: close\r\n\r\n");
-  
-      while(igClient.connected() && !igClient.available());
- //     Serial.println(".... data available");
-  
+  unsigned long m = millis();
+  if ((lastIGQuery == 0) || ((m - lastIGQuery) >= 102 * 60 * 1000)) { // every 102 mn
+    lastIGQuery = m;
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();
+    //secureClient.setFingerprint(INSTA_CERT);
+    if (secureClient.connect(INSTA_HOST, INSTA_SSL_PORT)) {
+      //     Serial.println("IG connected");
+
+      // secureClient.verify(INSTA_CERT, INSTA_HOST);
+
+      secureClient.print(String("GET /fdelhoume/?__a=1") + " HTTP/1.1\r\n" +
+                         "Host: " + INSTA_HOST + "\r\n" +
+                         "User-Agent: arduino/1.0.0\r\n" +
+                         "Connection: close\r\n\r\n");
+
+      while (secureClient.connected() && !secureClient.available());
+      //    Serial.println(".... ig data available");
+
       JsonStreamingParser parser;
       InstagramUserListener listener;
       currentKey = "";
       currentParent = "";
       parser.setListener(&listener);
-  
-      while (igClient.connected()) {
-          String line = igClient.readStringUntil('\n');
-   //      Serial.println(line);
-          if (line == "\r") {
-  //           Serial.println("headers received");
-            break;
-          }
-      }
-      long now = millis();
-      // add some delay for response
-      while (millis() - now < 3000) {
-        while (igClient.available()) {
-          char c = igClient.read();
-           parser.parse(c);
-           if (igFollowers != -1) {
-               igError = false;
-               lastIGQuery = millis();
-               igClient.stop();
-               return;
-           }
+
+      while (secureClient.connected()) {
+        String line = secureClient.readStringUntil('\n');
+        //       Serial.println(line);
+        if (line == "\r") {
+          //           Serial.println(".... ig headers received");
+          break;
         }
       }
-      lastIGQuery = millis();
-      igClient.stop();
+      unsigned long now = millis();
+      // add some delay for response
+      while (millis() - now < 1000) {
+        while (secureClient.available()) {
+          char c = secureClient.read();
+          //          Serial.print(c);
+          parser.parse(c);
+        }
+      }
+      if (listener._followers != -1) {
+        igFollowers = listener._followers;
+      }
+      secureClient.stop();
+    } else {
+      Serial.println("No IG connection");
     }
   }
 }
 
 void displayIGFollowers() {
   getIGFollowers();
-  if (igError == false) {
+  if (igFollowers != -1) {
     sprintf(scrollBuffer, "; %d followers", (int)igFollowers);
   } else {
-    strcpy(scrollBuffer, "");
+    strcpy(scrollBuffer, "; 233 followers*");
   }
 }
 
-boolean stocksError;
-char stocksBuffer[256];
+#define RESP_BUFFER_LENGTH 256
+uint8_t _buffer[RESP_BUFFER_LENGTH];
+
+String getHttpsContents(const char* host, const char* rest, const char* fingerprint) {
+  log(String(host) + rest);
+  String contents;
+  WiFiClientSecure secureClient;
+  //      secureClient.setTimeout(50);
+  if (fingerprint)
+    secureClient.setFingerprint(fingerprint);
+  else
+    secureClient.setInsecure();
+  if (secureClient.connect(host, 443)) { // very slow ! > 2 seconds
+    log("Connected");
+    //if (fingerprint) {
+    //   if (secureClient.verify(fingerprint, host)) {
+    //    Serial.println("certificate matches");
+    //   } else {
+    //     Serial.println("certificate doesn't match");
+    //   }
+    // }
+    secureClient.print(String("GET ") + rest +
+                       " HTTP/1.1\r\n" +
+                       "Host: " + host + "\r\n" +
+                       "User-Agent: arduino/1.0.0\r\n" +
+                       "Connection: close\r\n\r\n");
+ Serial.println("Request sent");
+    while (!secureClient.available()) {
+      Serial.println("Data not available");
+      delay(10);
+    }
+Serial.println("Data available");
+Serial.println("Reading headers");
+  while (secureClient.available()) {
+    String line = secureClient.readStringUntil('\n');
+//    log(line);
+    if (line == "\r") {
+      Serial.println("Headers received");
+      break;
+    }
+  }
+Serial.println("Reading contents");
+  while (secureClient.connected()) {
+              char c = secureClient.read();
+
+    contents += c;
+  }
+ secureClient.stop();
+ log("Done reading contents");
+    log(contents);
+  }
+
+  return contents;
+}
+
+String getHttpContents(String url) {
+  String contents;
+  if (WiFi.isConnected()) {
+    HTTPClient client;
+    Serial.println(url);
+    if (client.begin(wclient, url) == true) {
+      if (client.GET()) {
+        contents = client.getString();
+      }
+    }
+    client.end();
+  }
+  return contents;
+}
+
+
+
+char stocksBuffer[128] = { 0 };
+struct Quote {
+  const char* name;
+  int value;
+};
 
 // https://cloud.iexapis.com/stable/tops/last?token=pk_bb4ebad5e0d849ed94d61ee5d15e0dd7&symbols=aapl,ibm
-char HOST_STOCKS[] = "cloud.iexapis.com";
-char token[] = "pk_bb4ebad5e0d849ed94d61ee5d15e0dd7";
-char stocks[] = "aapl,amzn,goog,ibm,msft";
+const char* STOCKS_HOST = "cloud.iexapis.com";
+const char* token = "pk_bb4ebad5e0d849ed94d61ee5d15e0dd7";
 
-WiFiClientSecure iexClient;
-const char fingerprintIEX[] = "F5 71 04 D9 0C F6 77 A5 E3 26 10 27 25 A3 F7 B2 6A 27 7D B4"; // sha-1
+struct Quote quotes[] = {
+  { "aapl", -1 },
+  { "amzn", -1 },
+  { "goog", -1 },
+  { "ibm", -1 },
+  { "msft", -1 }
+};
 
+String stocks;
+String stocks_rest;
+
+//const char fingerprintIEX[] = "F5 71 04 D9 0C F6 77 A5 E3 26 10 27 25 A3 F7 B2 6A 27 7D B4"; // sha-1
+const char fingerprintIEX[] = "2A 57 A6 D7 C7 8D 20 64 45 AB D3 39 75 0E 58 43 C6 A3 09 6C";
+
+unsigned long lastIEXQuery = 0;
 void getQuotes() {
-  static long lastIEXQuery = 0;
-  if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 35 * 60 * 1000)) { // every 35 mn
-    stocksError = true;
-   if (WiFi.isConnected()) {
-      iexClient.setFingerprint(fingerprintIEX); 
-     // iexClient.setInsecure();
- //     iexClient.setTimeout(10);
- //     long tt = millis();
-      if (iexClient.connect(HOST_STOCKS, 443)) { // very slow ! > 2 seconds
-  //          Serial.print("Quotes connected");
-  //      Serial.print("connect time : "); Serial.println(millis() - tt); tt = millis();
-  //        iexClient.verify(fingerprintIEX, HOST_STOCKS);
-          String json;
-          static char buffer[100] = { 0 };
-          if (buffer[0] == 0)
-            sprintf(buffer, "GET /stable/tops/last?token=%s&symbols=%s", token, stocks);
-           iexClient.print(String(buffer) +
-                  " HTTP/1.1\r\n" +
-                  "Host: " + HOST_STOCKS + "\r\n" +
-//                  "User-Agent: arduino/1.0.0\r\n" +
-                  "Connection: close\r\n\r\n");
-            while(iexClient.connected() && !iexClient.available());
-           while (iexClient.connected()) {
-              String line = iexClient.readStringUntil('\n');
- //             Serial.println(line);
-              if (line == "\r") {
- //               Serial.println("Headers read");
-                 break;
-              }
-          }
-//          Serial.println("Reading contents");
-          // readStringUntil is very slow, because it is blocking on found char or 5s timeout...
-           while (iexClient.available()) {
-             int actualLength = iexClient.read(_buffer, RESP_BUFFER_LENGTH - 1);
- //           Serial.println(String("Quotes: ") + actualLength + " bytes read");
-              _buffer[actualLength] = 0;
-              json += String((char*)_buffer);
-          }
-          iexClient.stop();
- //         Serial.println(json);
-
-          DynamicJsonDocument doc(1024);
-          auto result = deserializeJson(doc, json);
-          if (!result) {
-             String str("");
-             JsonArray arr = doc.as<JsonArray>();
-             for (JsonObject quote : arr) {
-                  const char* stock = quote["symbol"]; 
-                  if (stock != 0) {         
-                    float value = quote["price"];
-                    static char buf[16];
-                    sprintf(buf, "%s : %d    ", stock, (int)value);
-                    str += String(buf);
-                  }
-              }
-              strcpy(stocksBuffer, str.c_str());
-              if (str.length() != 0) {
-                stocksError = false;
-              }
-           }
-        }
-      } 
-      lastIEXQuery = millis();
+  if (stocks.length() == 0) {
+    uint8_t n = sizeof(quotes) / sizeof(struct Quote);
+    for (uint8_t i = 0; i < n; ++i) {
+      stocks += String(quotes[i].name);
+      if (i < (n - 1))
+        stocks += ",";
     }
+    stocks_rest = String("/stable/tops/last?token=") + token + "&symbols=" + stocks;
+  }
+  if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 13 * 60 * 1000)) { // every 17 mn
+    lastIEXQuery = millis();
+    String json = getHttpsContents(STOCKS_HOST, stocks_rest.c_str()); //fingerprintIEX);
+    DynamicJsonDocument doc(1024);
+    auto result = deserializeJson(doc, json);
+    if (!result) {
+      String str("");
+      JsonArray arr = doc.as<JsonArray>();
+      uint8_t idx = 0;
+      for (JsonObject quote : arr) {
+        const char* stock = quote["symbol"];
+        if (stock != 0) {
+          float fvalue = quote["price"];
+          int value = (int)fvalue;
+          int pvalue = quotes[idx].value;
+          char buf[16];
+          int slen = sprintf(buf, "%s : %d^", stock, value);
+          if (pvalue == -1) {
+            buf[slen] = 32;
+          } else {
+            if (value > pvalue) {
+              buf[slen] = 24;
+            } else if (value < pvalue) {
+              buf[slen] = 25;
+            } else {
+              buf[slen] = 18;
+            }
+          }
+          buf[slen + 1] = 0;
+          str += String(buf) + "   ";
+          quotes[idx].value = value;
+        }
+        ++idx;
+      }
+      strcpy(stocksBuffer, str.c_str());
+    }
+  }
 }
+
 
 void displayQuotes() {
   getQuotes();
-  if (stocksError == false) {
+  if (stocksBuffer[0] != 0) {
     strcpy(scrollBuffer, stocksBuffer);
   } else {
     strcpy(scrollBuffer, "");
   }
 }
 
-boolean insideTempError;
-float insideTemp;
-
-HTTPClient adafruitClient;
+float insideTemp = -100.0;
+unsigned long lastAdafruitQuery = 0;
+const char* ADAFRUIT_HOST = "io.adafruit.com";
+const char* ADAFRUIT_REST = "/api/v2/delhoume/feeds/temperature/data?include=value&limit=1";
+//const char fingerprintAIO[] = "77 00 54 2D DA E7 D8 03 27 31 23 99 EB 27 DB CB A5 4C 57 18"; // sha-1
+const char fingerprintAIO[] = "59 3C 48 0A B1 8B 39 4E 0D 58 50 47 9A 13 55 60 CC A0 1D AF"; // new july 2020
+const char* localurl = "http://192.168.0.28/info"; // TODO: use DNS ?
 
 void getInsideTemp() {
-  static long lastAdafruitQuery = 0;
-  if ((lastAdafruitQuery == 0) || ((millis() - lastAdafruitQuery) >= 15 * 60 * 1000)) { // every 15 mn
-    insideTempError = true;
-   if (WiFi.isConnected()) {
-    // last is not working
-     adafruitClient.begin(wclient, "http://io.adafruit.com/api/v2/delhoume/feeds/temperature/data?include=value&limit=1");
-      if (adafruitClient.GET()) {
-        String json = adafruitClient.getString();
-
-//      Serial.println(json);
-      DynamicJsonDocument doc(64);
-        auto result = deserializeJson(doc, json);
-        if (!result) {
-         insideTemp = doc[0]["value"];
-        insideTempError = false;
-     }
-     }
-  } else {
-//        Serial.println("Not connected");
+  if ((lastAdafruitQuery == 0) || ((millis() - lastAdafruitQuery) >= 17 * 60 * 1000)) { // every 17 mn
+    if (WiFi.isConnected()) {
+      //      String json = getHttpsContents(ADAFRUIT_HOST, ADAFRUIT_REST); // , fingerprintAIO);
+      String json = getHttpContents(localurl);
+      Serial.println(json);
+      DynamicJsonDocument doc(128);
+      auto result = deserializeJson(doc, json);
+      if (!result) {
+        insideTemp = doc[0]["value"];
+      } else {
+        insideTemp = -110.0;
+      }
+    } else {
+      insideTemp = -105.0;
+    }
+    lastAdafruitQuery = millis();
   }
-   lastAdafruitQuery = millis();
-}
 }
 
 void displayInsideTemp() {
   getInsideTemp();
-  if (insideTempError == false) {
+  if (insideTemp > -100.0) {
     if ((fabs(round(insideTemp) - insideTemp)) <= 0000.1) // int, do not display trailing 0
       sprintf(scrollBuffer, "Temp\xE9rature int\xE9rieure : %d$", (int)round(insideTemp));
     else
       sprintf(scrollBuffer, "Temp\xE9rature int\xE9rieure : %.1f$", insideTemp); // one decimal
   } else {
-    strcpy(scrollBuffer, "");
+    if (insideTemp == -110.0)
+      strcpy(scrollBuffer, "Temp\xE9rature int\xE9rieure : Erreur");
+    else if (insideTemp == -105.0)
+      strcpy(scrollBuffer, "Temp\xE9rature int\xE9rieure : Pas de connection");
+    else
+      strcpy(scrollBuffer, "");
   }
 }
 
 void displayText() {
-    strcpy(scrollBuffer, textBuffer);
+  strcpy(scrollBuffer, textBuffer);
 }
 
 void displayInvaders() {
-   P.setFont(0, invaderData);
-   strcpy(scrollBuffer, "abab");
+  P.setFont(0, invaderData);
+  strcpy(scrollBuffer, "abcde");
+}
+
+static String GetUptime() {
+  uptime::calculateUptime();
+  int d = uptime::getDays();
+  String ret = "Uptime : ";
+  if (d > 0) {
+    ret +=  (String)(d) + "d";
+  }
+  ret += (String)(uptime::getHours()  ) + "h";
+  if (d == 0) {
+    ret += (String)(uptime::getMinutes()) + "m";
+  }
+  if (!WiFi.isConnected())
+    ret += "-o";
+  return ret;
 }
 
 void displayUptime() {
-  String uptime = "Uptime: " + uptime_formatter::getUptime();
+  String uptime = GetUptime();
   strcpy(scrollBuffer, uptime.c_str());
+}
+
+
+unsigned long lastBusQuery = 0L;
+char BusBuffer[128] = { 0 };
+const char* IDFM_HOST = "api-iv.iledefrance-mobilites.fr";
+const char* BUS184_REST = "/lines/line:IDFM:C01205/stops/stop_area:IDFM:70364/realtime";
+
+void getBus() {
+  unsigned long m = millis();
+  if ((lastBusQuery == 0) || ((m - lastBusQuery) >= 1 * 60 * 1000)) { // every 1 mn
+    String textScroller = "Bus 184 ";
+    lastBusQuery = m;
+    String json = getHttpsContents(IDFM_HOST, BUS184_REST); 
+    //        Serial.println(json);
+    StaticJsonDocument<1024> doc;
+    DeserializationError error = deserializeJson(doc, json);
+    if (error) {
+      textScroller += error.f_str();
+    } else {
+      // test for error
+      if (doc["nextDepartures"]["statusCode"] == 200) {
+        char previousDirection[64] = { 0 };
+        for (JsonObject item : doc["nextDepartures"]["data"].as<JsonArray>()) {
+     Serial.println(String("0 ") + textScroller + "|");
+          const char* lineDirection = item["lineDirection"];
+            Serial.println(String("Line direction ") + lineDirection);
+          Serial.println(String("Previous line direction ") + previousDirection);
+            boolean isSameDirection = !strcmp(lineDirection, previousDirection);
+            if (isSameDirection) {
+              textScroller += ",";
+            Serial.println("Same direction");
+            } else {
+              textScroller += "  ";
+              textScroller += String(lineDirection) + ": ";
+              strcpy(previousDirection, lineDirection);
+            Serial.println("Different direction");
+            }
+    Serial.println(String("1 ") + textScroller + "|");
+           const char* code = item["code"]; // "duration", "message"
+            if (!strcmp(code, "message")) {
+               char utf8buf[64];
+              strcpy(utf8buf, item["schedule"]);
+              char latin9buf[64];
+              utf8_to_latin9(latin9buf, utf8buf, strlen(utf8buf));
+             textScroller += String(latin9buf);
+            
+            } else if (!strcmp(code, "duration")) {
+              const char* thetime = item["time"];
+              textScroller += String(thetime) + "mn";
+            }
+            Serial.println(String("2 ") + textScroller + "|");
+            }
+          Serial.println(String("3 ") + textScroller + "|");
+      } else {
+ //       const char* errorMessage = doc["nextDepartures"]["errorMessage"];
+        textScroller += String("info indisponible");
+      }
+    }
+    Serial.println(String("5 ") + textScroller + "|");
+    strcpy(BusBuffer, textScroller.c_str());
+  }
+}
+
+void displayBus() {
+  getBus();
+  if (BusBuffer[0] != 0) {
+    strcpy(scrollBuffer, BusBuffer);
+  } else {
+    strcpy(scrollBuffer, "");
+  }
+}
+
+
+char issBuffer[32] = { 0 };
+const char* ISS_HOST = "http://api.open-notify.org/iss-pass.json?lat=48.8075&lon=2.3361&n=4";
+unsigned long lastIssQuery = 0L;
+unsigned long risetime = 0L;
+int duration = 0;
+
+void getIss() {
+  unsigned long m = millis();
+  if ((lastIssQuery == 0) || ((m - lastIssQuery) >= 17 * 60 * 1000)) { // every 17 mn
+    lastIssQuery = m;
+    String json = getHttpContents(ISS_HOST);
+    //        Serial.println(json);
+    DynamicJsonDocument doc(768);
+    auto result = deserializeJson(doc, json);
+    if (!result) {
+      risetime = 0; duration = 0;
+      JsonArray times = doc["response"];
+      int sizes = times.size();
+      for (uint8_t idx = 0; idx < sizes; ++idx) {
+        if (times[idx]["duration"] > duration) {
+          duration = times[idx]["duration"];
+          risetime = times[idx]["risetime"];
+        }
+      }
+    }
+  }
+  if (duration < 655) {
+    strcpy(issBuffer, "No good ISS info");
+    return;
+  }
+  unsigned long nnow = now();
+  unsigned long eend = risetime + duration;
+  if (eend < nnow) { // too late
+    //        Serial.println("too late");
+    strcpy(issBuffer, "No ISS info");
+    lastIssQuery = 0;
+  } else if (risetime < nnow) { // over
+    //        Serial.println("over");
+    int remaining = eend - nnow;
+    int mm = remaining / 60;
+    int ss = remaining % 60;
+    sprintf(issBuffer, "ISS visible for %dm%ds", mm, ss);
+  } else { // waiting
+    //        Serial.println("waiting");
+    long wait = risetime - nnow;
+    int mm = wait / 60;
+    int hh = mm / 60;
+    if (hh > 0) {
+      sprintf(issBuffer, "ISS in %dh%dm", hh, (mm % 60));
+    } else {
+      sprintf(issBuffer, "ISS in %dm", mm % 60);
+    }
+  }
+}
+
+void displayIss() {
+  getIss();
+  if (issBuffer[0] != 0) {
+    strcpy(scrollBuffer, issBuffer);
+  } else {
+    strcpy(scrollBuffer, "");
+  }
 }
 
 DISPLAYFUN displayFuns[] = {
@@ -773,23 +1162,26 @@ DISPLAYFUN displayFuns[] = {
   displayTemp,
   displayDescription,
   displayInsideTemp,
-  displayBitcoin,
-  displayIGFollowers,
+//  displayBitcoin,
+//  displayEthereum,
+  displayCryptos,
+  //  displayIGFollowers,
+  //  displayIss,
   displayQuotes,
+  displayBus,
   displayText,
-  displayInvaders,
-  displayUptime
+  displayUptime,
+  displayInvaders
   //displayAllChars
 };
 
 uint8_t numFuns = sizeof(displayFuns) / sizeof(DISPLAYFUN);
-    
+
 void loop(void) {
-  static long lastTime = 0;
-  static long lastWifi = 0;
+  static unsigned long lastTime = 0;
+  static unsigned long lastWifi = 0;
   static bool	flasher = false;
   static uint8_t curPage = 0;
-
   ArduinoOTA.handle();
   webServer.handleClient();
   P.displayAnimate();
@@ -799,7 +1191,7 @@ void loop(void) {
     P.setFont(0, ExtASCII); // all utf8 chars
     displayFuns[curPage]();
     curPage = (curPage + 1) % numFuns;
-//    Serial.println(String("Curpage = ") + curPage);
+    //    Serial.println(String("Curpage = ") + curPage);
     P.displayReset(0);
   }
   if (millis() - lastTime >= 1000) {
@@ -809,13 +1201,14 @@ void loop(void) {
     getTime(flasher);
     P.displayReset(1);
   }
-   if (millis() - lastWifi >= 1000 * 60) { // every minute check wifi
+  delay(10);
+  if (millis() - lastWifi >= 1000 * 60 * 10) { // every 10 minute check wifi
     lastWifi = millis();
     if (!WiFi.isConnected()) {
- //     WiFiManager wifiManager;
-  //    wifiManager.setConfigPortalTimeout(5);
-  //    wifiManager.autoConnect("ticker"); //  no password
-  ESP.restart();
-   }
+      //     WiFiManager wifiManager;
+      //    wifiManager.setConfigPortalTimeout(5);
+      //    wifiManager.autoConnect("ticker"); //  no password
+      ESP.restart();
+    }
   }
 }

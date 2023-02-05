@@ -24,6 +24,8 @@
 #include <uptime_formatter.h>
 #include <Timezone.h>
 
+#include "secrets.h"
+
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW
 #define MAX_DEVICES 8
 #define CLK_PIN   D8 // or SCK
@@ -344,7 +346,6 @@ struct WeatherInfo {
 
 struct WeatherInfo OWMInfo;
 
-const char* owmApiKey    = "a300cf2dc95e477a855786b812a4aec9";
 const char* owmArcueilId = "6613168";
 const char* owmLang      = "fr"; // fr encodes accents in utf8, not easy to convert
 
@@ -870,7 +871,6 @@ struct Quote {
 
 // https://cloud.iexapis.com/stable/tops/last?token=pk_bb4ebad5e0d849ed94d61ee5d15e0dd7&symbols=aapl,ibm
 const char* STOCKS_HOST = "cloud.iexapis.com";
-const char* token = "pk_bb4ebad5e0d849ed94d61ee5d15e0dd7";
 
 struct Quote quotes[] = {
   { "aapl", -1 },
@@ -895,7 +895,7 @@ void getQuotes() {
       if (i < (n - 1))
         stocks += ",";
     }
-    stocks_rest = String("/stable/tops/last?token=") + token + "&symbols=" + stocks;
+    stocks_rest = String("/stable/tops/last?token=") + iextoken + "&symbols=" + stocks;
   }
   if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 13 * 60 * 1000)) { // every 17 mn
     lastIEXQuery = millis();

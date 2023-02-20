@@ -169,7 +169,7 @@ void setParolaIntensity(uint8_t value) {
   P.setIntensity(1, intensity + 3); // green is dimmer ?
 }
 
-String logString("");
+//String logString("");
 
 void log(String log) {
   //  logString += log;
@@ -177,7 +177,7 @@ void log(String log) {
 }
 
 // ticker.local
-String dnsname("ticker");
+String dnsname("wemosTicker");
 
 void setup(void) {
   Serial.begin(115200);
@@ -209,10 +209,10 @@ void setup(void) {
     Serial.setDebugOutput(true);
     WiFi.setAutoReconnect (true);
     WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected & event) {
-      Serial.println(String("Station disconnected ") + event.reason);
+      Serial.println(String(F("Station disconnected ")) + event.reason);
     });
     WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP&) {
-      Serial.print("Station connected, IP: ");
+      Serial.print(F("Station connected, IP: "));
       Serial.println(WiFi.localIP());
     });
 
@@ -232,7 +232,7 @@ void setup(void) {
 
     // returns all parameters as JSON
     webServer.on("/", HTTP_GET, []() {
-      DynamicJsonDocument doc(256);
+      StaticJsonDocument<256> doc;
       doc["uptime"] = uptime_formatter::getUptime();
       doc["speed"] = speed;
       doc["text"] = textBuffer;
@@ -288,9 +288,9 @@ void setup(void) {
       }
       webServer.send(200, "text/plain", String(textBuffer));
     });
-    webServer.on("/log", HTTP_GET, []() {
-      webServer.send(200, "text/plain", logString);
-    });
+//    webServer.on("/log", HTTP_GET, []() {
+//      webServer.send(200, "text/plain", logString);
+//    });
 
     // serve pages from SPIFFS
     webServer.begin();
@@ -741,7 +741,7 @@ void getIGFollowers() {
 
       // secureClient.verify(INSTA_CERT, INSTA_HOST);
 
-      secureClient.print(String("GET /fdelhoume/?__a=1") + " HTTP/1.1\r\n" +
+      secureClient.print(String(F("GET /fdelhoume/?__a=1")) + " HTTP/1.1\r\n" +
                          "Host: " + INSTA_HOST + "\r\n" +
                          "User-Agent: arduino/1.0.0\r\n" +
                          "Connection: close\r\n\r\n");
@@ -777,7 +777,7 @@ void getIGFollowers() {
       }
       secureClient.stop();
     } else {
-      Serial.println("No IG connection");
+      Serial.println(F("No IG connection"));
     }
   }
 }
@@ -817,29 +817,29 @@ String getHttpsContents(const char* host, const char* rest, const char* fingerpr
                        "Host: " + host + "\r\n" +
                        "User-Agent: arduino/1.0.0\r\n" +
                        "Connection: close\r\n\r\n");
- Serial.println("Request sent");
+ Serial.println(F("Request sent"));
     while (!secureClient.available()) {
-      Serial.println("Data not available");
+      Serial.println(F("Data not available"));
       delay(10);
     }
-Serial.println("Data available");
-Serial.println("Reading headers");
+Serial.println(F("Data available"));
+Serial.println(F("Reading headers"));
   while (secureClient.available()) {
     String line = secureClient.readStringUntil('\n');
 //    log(line);
     if (line == "\r") {
-      Serial.println("Headers received");
+      Serial.println(F("Headers received"));
       break;
     }
   }
-Serial.println("Reading contents");
+Serial.println(F("Reading contents"));
   while (secureClient.connected()) {
               char c = secureClient.read();
 
     contents += c;
   }
  secureClient.stop();
- log("Done reading contents");
+ log(F("Done reading contents"));
     log(contents);
   }
 
@@ -895,7 +895,7 @@ void getQuotes() {
       if (i < (n - 1))
         stocks += ",";
     }
-    stocks_rest = String("/stable/tops/last?token=") + iextoken + "&symbols=" + stocks;
+    stocks_rest = String(F("/stable/tops/last?token=")) + iextoken + "&symbols=" + stocks;
   }
   if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 13 * 60 * 1000)) { // every 17 mn
     lastIEXQuery = millis();
@@ -960,7 +960,7 @@ void getInsideTemp() {
       //      String json = getHttpsContents(ADAFRUIT_HOST, ADAFRUIT_REST); // , fingerprintAIO);
       String json = getHttpContents(localurl);
       Serial.println(json);
-      DynamicJsonDocument doc(128);
+      StaticJsonDocument<128> doc;
       auto result = deserializeJson(doc, json);
       if (!result) {
         insideTemp = doc[0]["value"];
@@ -1034,8 +1034,16 @@ void getBus() {
     lastBusQuery = m;
     String json = getHttpsContents(IDFM_HOST, BUS184_REST); 
     //        Serial.println(json);
-    StaticJsonDocument<1024> doc;
-    DeserializationError error = deserializeJson(doc, json);
+   StaticJsonDocument<128> filter;
+  StaticJsonDocument<1024> doc;
+    JsonObject filter_nextDepartures = filter.createNestedObject("nextDepartures");
+    JsonObject filter_nextDepartures_data_0 = filter_nextDepartures["data"].createNestedObject();
+    filter_nextDepartures_data_0["lineDirection"] = true;
+    filter_nextDepartures_data_0["code"] = true;
+    filter_nextDepartures_data_0["time"] = true;
+    filter_nextDepartures_data_0["duration"] = true;
+    filter_nextDepartures["statusCode"] = true;
+    DeserializationError error = deserializeJson(doc, json, DeserializationOption::Filter(filter));
     if (error) {
       textScroller += error.f_str();
     } else {
@@ -1043,21 +1051,15 @@ void getBus() {
       if (doc["nextDepartures"]["statusCode"] == 200) {
         char previousDirection[64] = { 0 };
         for (JsonObject item : doc["nextDepartures"]["data"].as<JsonArray>()) {
-     Serial.println(String("0 ") + textScroller + "|");
-          const char* lineDirection = item["lineDirection"];
-            Serial.println(String("Line direction ") + lineDirection);
-          Serial.println(String("Previous line direction ") + previousDirection);
+            const char* lineDirection = item["lineDirection"];
             boolean isSameDirection = !strcmp(lineDirection, previousDirection);
             if (isSameDirection) {
               textScroller += ",";
-            Serial.println("Same direction");
-            } else {
+             } else {
               textScroller += "  ";
               textScroller += String(lineDirection) + ": ";
               strcpy(previousDirection, lineDirection);
-            Serial.println("Different direction");
             }
-    Serial.println(String("1 ") + textScroller + "|");
            const char* code = item["code"]; // "duration", "message"
             if (!strcmp(code, "message")) {
                char utf8buf[64];
@@ -1070,15 +1072,12 @@ void getBus() {
               const char* thetime = item["time"];
               textScroller += String(thetime) + "mn";
             }
-            Serial.println(String("2 ") + textScroller + "|");
             }
-          Serial.println(String("3 ") + textScroller + "|");
       } else {
  //       const char* errorMessage = doc["nextDepartures"]["errorMessage"];
-        textScroller += String("info indisponible");
+        textScroller += String(F("info indisponible"));
       }
     }
-    Serial.println(String("5 ") + textScroller + "|");
     strcpy(BusBuffer, textScroller.c_str());
   }
 }

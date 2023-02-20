@@ -1,0 +1,20 @@
+{
+  "nextDepartures": {
+    "data": [
+      {
+        "lineDirection": true,
+        "code":true,
+        "time": true,
+        "duration": true
+       }
+    ],
+    "statusCode": true
+  }
+}
+
+StaticJsonDocument<64> filter;
+filter["nextDepartures"]["data"[0]["lineDirection"] = true;
+filter["nextDepartures"]["data"[0]["code"] = true;
+filter["nextDepartures"]["data"[0]["time"] = true;
+filter["nextDepartures"]["data"[0]["duration"] = true;
+filter["nextDepartures"]["statusCode"] = true;

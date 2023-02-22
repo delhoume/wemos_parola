@@ -690,6 +690,7 @@ void displayAllChars() {
   scrollBuffer[255] = 0;
 }
 
+/*
 int igFollowers = -1;
 
 #define INSTA_HOST "www.instagram.com"
@@ -790,6 +791,7 @@ void displayIGFollowers() {
     strcpy(scrollBuffer, "; 233 followers*");
   }
 }
+*/
 
 #define RESP_BUFFER_LENGTH 256
 uint8_t _buffer[RESP_BUFFER_LENGTH];
@@ -804,7 +806,7 @@ String getHttpsContents(const char* host, const char* rest, const char* fingerpr
   else
     secureClient.setInsecure();
   if (secureClient.connect(host, 443)) { // very slow ! > 2 seconds
-    log("Connected");
+    log(F("Connected"));
     //if (fingerprint) {
     //   if (secureClient.verify(fingerprint, host)) {
     //    Serial.println("certificate matches");
@@ -1091,7 +1093,7 @@ void displayBus() {
   }
 }
 
-
+/*
 char issBuffer[32] = { 0 };
 const char* ISS_HOST = "http://api.open-notify.org/iss-pass.json?lat=48.8075&lon=2.3361&n=4";
 unsigned long lastIssQuery = 0L;
@@ -1155,6 +1157,7 @@ void displayIss() {
     strcpy(scrollBuffer, "");
   }
 }
+*/
 
 DISPLAYFUN displayFuns[] = {
   displayDate,

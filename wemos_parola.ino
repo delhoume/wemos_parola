@@ -1,7 +1,3 @@
-// works with esp8266 core 3.0.2
-// does not work with 3.1.1 because of httpsrequest
-
-
 #include <MD_Parola.h>
 #include "ASCII_Font_Data.h"
 #include "Numeric7seg_Font_data.h"
@@ -16,6 +12,8 @@
 #include <WiFiClient.h>
 
 #include <ArduinoJson.h>
+#define ARDUINOTRACE_ENABLE 1  // Disable all traces
+#include <ArduinoTrace.h>
 
 #include <JsonListener.h>
 #include <JsonStreamingParser.h>
@@ -39,7 +37,8 @@ MD_Parola P = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
 #define SPEED_TIME 60
 
 char timeBuffer[24];
-char scrollBuffer[256]; // maybe a bit large...
+#define SCROLL_BUFFER_SIZE 256
+char scrollBuffer[SCROLL_BUFFER_SIZE]; // maybe a bit large...
 
 uint8_t degC[] = { 6, 3, 3, 56, 68, 68, 68 };	 // Deg C
 uint8_t euro[] = { 6, 20, 62, 85, 85, 65, 34 };  // 'Euro sign'
@@ -47,7 +46,7 @@ uint8_t bitcoin[] = { 5, 127, 73, 255, 73, 54 };
 uint8_t insta[] = { 8, 126, 129, 153, 165, 165, 153, 129, 126 }; // Instagram icon
 uint8_t ethereum[] = { 5, 73, 73, 73, 73, 73 };
 
-typedef void (*DISPLAYFUN)();
+typedef void (*DISPLAYFUN)(char* destination);
 
 // Central European Time (Frankfurt, Paris)
 TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
@@ -98,8 +97,7 @@ WiFiUDP udp;
 
 void sendNTPpacket(IPAddress& address) {
   if (WiFi.isConnected()) {
-    //   Serial.println("Requesting NTP");
-    memset(packetBuffer, 0, NTP_PACKET_SIZE);
+     memset(packetBuffer, 0, NTP_PACKET_SIZE);
     packetBuffer[0] = 0b11100011;   // LI, Version, Mode
     udp.beginPacket(address, 123); //NTP requests are to port 123
     udp.write(packetBuffer, NTP_PACKET_SIZE);
@@ -115,7 +113,6 @@ time_t getNtpTime() {
   while (millis() - beginWait < 1500) {
     int size = udp.parsePacket();
     if (size >= NTP_PACKET_SIZE) {
-      //     Serial.println("Receive NTP Response");
       udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer
@@ -126,7 +123,6 @@ time_t getNtpTime() {
       return secsSince1900 - 2208988800UL;
     }
   }
-  //  Serial.println("No NTP Response :-(");
   return 0; // return 0 if unable to get the time
 }
 
@@ -169,13 +165,6 @@ void setParolaIntensity(uint8_t value) {
   P.setIntensity(1, intensity + 3); // green is dimmer ?
 }
 
-//String logString("");
-
-void log(String log) {
-  //  logString += log;
-  Serial.println(log);
-}
-
 // ticker.local
 String dnsname("wemosTicker");
 
@@ -185,35 +174,19 @@ void setup(void) {
   setParolaIntensity(0);
   P.print("Wifi...");
 
-#if 1
   WiFiManager wifiManager;
   wifiManager.setConfigPortalTimeout(120);
   wifiManager.setDebugOutput(true);
   wifiManager.setMinimumSignalQuality(30);
   wifiManager.autoConnect("ticker"); //  no password
-#else
-  WiFi.begin("", "");             // Connect to the network
-  Serial.print("Connecting to ");
-  Serial.println(" ...");
-
-  int i = 0;
-  while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
-    delay(1000);
-    Serial.print(++i); Serial.print(' ');
-  }
-#endif
 
   strcpy(timeBuffer, "--:--");
   strcpy(scrollBuffer, "Fred");
   if (WiFi.isConnected()) {
-    Serial.setDebugOutput(true);
-    WiFi.setAutoReconnect (true);
+     WiFi.setAutoReconnect (true);
     WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected & event) {
-      Serial.println(String(F("Station disconnected ")) + event.reason);
-    });
+     });
     WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP&) {
-      Serial.print(F("Station connected, IP: "));
-      Serial.println(WiFi.localIP());
     });
 
     initOTA();
@@ -288,11 +261,6 @@ void setup(void) {
       }
       webServer.send(200, "text/plain", String(textBuffer));
     });
-//    webServer.on("/log", HTTP_GET, []() {
-//      webServer.send(200, "text/plain", logString);
-//    });
-
-    // serve pages from SPIFFS
     webServer.begin();
   }
 
@@ -324,14 +292,13 @@ void setup(void) {
   initText();
 }
 
-
-void displayDate() {
+void displayDate(char* destination) {
   time_t utc = now(); // triggers update if necessary
   time_t local = CE.toLocal(utc, &tcr);
   int wd = weekday(local);
   int d = day(local);
   int m = month(local);
-  sprintf(scrollBuffer, "%s %d %s", days[wd - 1], d, monthes[m - 1]);
+  sprintf(destination, "%s %d %s", days[wd - 1], d, monthes[m - 1]);
 }
 
 String getHttpsContents(const char* host, const char* rest, const char* fingerprint = 0);
@@ -502,8 +469,8 @@ void getOWMInfo() {
       owm.begin(wclient, owmURL);
       if (owm.GET()) {
         String json = owm.getString();
-        //        Serial.println(json);
-        //       Serial.println(json.length());
+        DUMP(json);
+        DUMP(json.length());
         DynamicJsonDocument doc(2048);
         auto result = deserializeJson(doc, json);
         if (!result) {
@@ -515,7 +482,7 @@ void getOWMInfo() {
           strcpy(utf8buf, weather["description"]);
           utf8_to_latin9(OWMInfo.fulldescription, utf8buf, strlen(utf8buf));
           //      displayHexString(OWMInfo.fulldescription);
-          //      Serial.println(OWMInfo.temperature);
+          DUMP(OWMInfo.temperature);
         }
       }
       owm.end();
@@ -523,125 +490,24 @@ void getOWMInfo() {
   }
 }
 
-void displayTemp() {
+void displayTemp(char* destination) {
   getOWMInfo();
   if (OWMInfo.temperature != -100) {
-    sprintf(scrollBuffer, "Temp\xE9rature ext\xE9rieure : %d$", (int)OWMInfo.temperature);
+    sprintf(destination, "Temp\xE9rature ext\xE9rieure : %d$", (int)OWMInfo.temperature);
   } else {
-    strcpy(scrollBuffer, "");
+    strcpy(destination, "");
   }
 }
 
-void displayDescription() {
+void displayDescription(char* destination) {
   getOWMInfo();
   if (OWMInfo.fulldescription[0] != 0) {
-    sprintf(scrollBuffer, "%s", OWMInfo.fulldescription);
-    scrollBuffer[0] = toupper(scrollBuffer[0]);
+    sprintf(destination, "%s", OWMInfo.fulldescription);
+    destination[0] = toupper(destination[0]);
   } else {
-    strcpy(scrollBuffer, "");
+    strcpy(destination, "");
   }
 }
-
-/*
-const char* bitcoinURL = "http://api.coindesk.com/v1/bpi/currentprice/EUR.json";
-int btcValue = -1;
-int oldBtcValue = -1;
-unsigned long lastBTCQuery = 0;
-
-void getBitcoin() {
-  if ((lastBTCQuery == 0) || ((millis() - lastBTCQuery) >= 16 * 60 * 1000)) { // every 16 mn
-    lastBTCQuery = millis();
-    if (WiFi.isConnected()) {
-      HTTPClient bitcoin_client;
-      //      Serial.println(bitcoinURL);
-      if (bitcoin_client.begin(wclient, bitcoinURL) == true) {
-        if (bitcoin_client.GET()) {
-          String json = bitcoin_client.getString();
-          //          Serial.println(json);
-          //Serial.println(json.length());
-          DynamicJsonDocument doc(1024);
-          auto result = deserializeJson(doc, json);
-          if (!result) {
-            oldBtcValue = btcValue;
-            btcValue = (int)doc["bpi"]["EUR"]["rate_float"];
-          }
-        }
-      } else {
-        //        Serial.println("No connection");
-      }
-      bitcoin_client.end();
-    }
-  }
-}
-
-
-void displayBitcoin() {
-  getBitcoin();
-  if (btcValue > -1) {
-    int slen = sprintf(scrollBuffer, "#itcoin : %d ^", btcValue);
-    if (oldBtcValue != -1) {
-      if (btcValue > oldBtcValue) {
-        scrollBuffer[slen] = 24;
-      } else if (btcValue < oldBtcValue) {
-        scrollBuffer[slen] = 25;
-      } else {
-        scrollBuffer[slen] = 18;
-      }
-      scrollBuffer[slen + 1] = 0;
-    }
-  } else {
-    strcpy(scrollBuffer, "");
-  }
-}
-
-
-const char* ETHER_HOST = "api.coinbase.com";
-const char* ETHER_REST = "/v2/prices/ETH-EUR/spot";
-
-
-int ethValue = -1;
-int oldEthValue = -1;
-unsigned long lastETHQuery = 0;
-
-void getEthereum() {
-  if ((lastETHQuery == 0) || ((millis() - lastETHQuery) >= 19 * 60 * 1000)) { // every 19 mn
-    lastETHQuery = millis();
-    if (WiFi.isConnected()) {
-      //  strange, contents starts with 3b\n !
-      String json = getHttpsContents(ETHER_HOST, ETHER_REST).substring(2);
-      //         log(json);
-      DynamicJsonDocument doc(1024);
-      auto result = deserializeJson(doc, json);
-      if (!result) {
-        oldEthValue = ethValue;
-        ethValue = (int)doc["data"]["amount"];
-      }
-    } else {
-      //         log("No connection");
-    }
-  }
-}
-
-
-void displayEthereum() {
-  getEthereum();
-  if (ethValue > -1) {
-    int slen = sprintf(scrollBuffer, "|thereum : %d ^", ethValue);
-    if (oldEthValue != -1) {
-      if (ethValue > oldEthValue) {
-        scrollBuffer[slen] = 24;
-      } else if (ethValue < oldEthValue) {
-        scrollBuffer[slen] = 25;
-      } else {
-        scrollBuffer[slen] = 18;
-      }
-      scrollBuffer[slen + 1] = 0;
-    }
-  } else {
-    strcpy(scrollBuffer, "");
-  }
-}
-*/
 
 const char* cryptoHOST = "api.coingecko.com";
 const char* cryptoREST = "/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=eur&include_24hr_change=true";
@@ -653,41 +519,39 @@ float ethChange;
 unsigned long lastCryptoQuery = 0;
 
 void getCryptos() {
-  if ((lastCryptoQuery == 0) || ((millis() - lastCryptoQuery) >= 16 * 60 * 1000)) { // every 8 mn
+  if ((lastCryptoQuery == 0) || ((millis() - lastCryptoQuery) >= 4 * 60 * 1000)) { // every 4 mn
     lastCryptoQuery = millis();
-    btcValue = -1;
-    ethValue = -1;
    if (WiFi.isConnected()) {
       String json = getHttpsContents(cryptoHOST, cryptoREST).substring(2);
- //    Serial.println(json);
-          StaticJsonDocument<192> doc;
-          DeserializationError error = deserializeJson(doc, json);
-          if (error) {
-            Serial.println(error.f_str());
-         } else {
-             btcValue = (int)doc["bitcoin"]["eur"];
-             ethValue = (int)doc["ethereum"]["eur"];
-             btcChange = doc["bitcoin"]["eur_24h_change"]; 
-             ethChange = doc["ethereum"]["eur_24h_change"]; 
-           } 
+//      DUMP(json);
+      StaticJsonDocument<192> doc;
+      DeserializationError error = deserializeJson(doc, json);
+      if (error) {
+        DUMP(error.f_str());
+      } else {
+          btcValue = (int)doc["bitcoin"]["eur"];
+          ethValue = (int)doc["ethereum"]["eur"];
+          btcChange = doc["bitcoin"]["eur_24h_change"]; 
+          ethChange = doc["ethereum"]["eur_24h_change"]; 
         } 
-      } 
-    }
+    } 
+  } 
+}
 
-void displayCryptos() {
+void displayCryptos(char* destination) {
   getCryptos();
   if (btcValue != -1) {
-    sprintf(scrollBuffer, "#itcoin : %d %c     |thereum : %d %c", btcValue, btcChange >= 0 ? 24 : 25, ethValue, ethChange >= 0 ? 24 : 25);
+    sprintf(destination, "#itcoin : %d%c   |thereum : %d%c", btcValue, btcChange >= 0 ? 24 : 25, ethValue, ethChange >= 0 ? 24 : 25);
   } else {
-    strcpy(scrollBuffer, "");
+    strcpy(destination, "");
   }
 }
-void displayAllChars() {
+void displayAllChars(char* destination) {
   uint16_t idx;
-  for (idx = 1; idx < 256; ++idx) {
-    scrollBuffer[idx] = idx;
+  for (idx = 32; idx < SCROLL_BUFFER_SIZE - 1; ++idx) {
+    destination[idx] = idx;
   }
-  scrollBuffer[255] = 0;
+  destination[idx] = 0;
 }
 
 /*
@@ -710,11 +574,11 @@ class InstagramUserListener : public JsonListener {
       currentKey = key;
     }
     virtual void value(String value) {
-      Serial.println(value);
+      DUMP(value);
       if (currentParent == "edge_followed_by") {
-        Serial.println("Found edge_followed_by");
+        TRACE();
         if (currentKey == "count") {
-          Serial.println("Found count");
+          TRACE();
           _followers = value.toInt();
         }
       }
@@ -736,19 +600,17 @@ void getIGFollowers() {
     lastIGQuery = m;
     WiFiClientSecure secureClient;
     secureClient.setInsecure();
-    //secureClient.setFingerprint(INSTA_CERT);
-    if (secureClient.connect(INSTA_HOST, INSTA_SSL_PORT)) {
-      //     Serial.println("IG connected");
+     if (secureClient.connect(INSTA_HOST, INSTA_SSL_PORT)) {
+      TRACE();
 
-      // secureClient.verify(INSTA_CERT, INSTA_HOST);
-
+  
       secureClient.print(String(F("GET /fdelhoume/?__a=1")) + " HTTP/1.1\r\n" +
                          "Host: " + INSTA_HOST + "\r\n" +
                          "User-Agent: arduino/1.0.0\r\n" +
                          "Connection: close\r\n\r\n");
 
       while (secureClient.connected() && !secureClient.available());
-      //    Serial.println(".... ig data available");
+      TRACE();
 
       JsonStreamingParser parser;
       InstagramUserListener listener;
@@ -758,9 +620,9 @@ void getIGFollowers() {
 
       while (secureClient.connected()) {
         String line = secureClient.readStringUntil('\n');
-        //       Serial.println(line);
+        DUMP(line);
         if (line == "\r") {
-          //           Serial.println(".... ig headers received");
+          TRACE();
           break;
         }
       }
@@ -769,7 +631,6 @@ void getIGFollowers() {
       while (millis() - now < 1000) {
         while (secureClient.available()) {
           char c = secureClient.read();
-          //          Serial.print(c);
           parser.parse(c);
         }
       }
@@ -778,17 +639,17 @@ void getIGFollowers() {
       }
       secureClient.stop();
     } else {
-      Serial.println(F("No IG connection"));
+      TRACE();
     }
   }
 }
 
-void displayIGFollowers() {
+void displayIGFollowers(char* destination) {
   getIGFollowers();
   if (igFollowers != -1) {
-    sprintf(scrollBuffer, "; %d followers", (int)igFollowers);
+    sprintf(destination, "; %d followers", (int)igFollowers);
   } else {
-    strcpy(scrollBuffer, "; 233 followers*");
+    strcpy(destination, "; 233 followers*");
   }
 }
 */
@@ -797,7 +658,8 @@ void displayIGFollowers() {
 uint8_t _buffer[RESP_BUFFER_LENGTH];
 
 String getHttpsContents(const char* host, const char* rest, const char* fingerprint) {
-  log(String(host) + rest);
+  DUMP(host);
+  DUMP(rest);
   String contents;
   WiFiClientSecure secureClient;
   //      secureClient.setTimeout(50);
@@ -806,45 +668,49 @@ String getHttpsContents(const char* host, const char* rest, const char* fingerpr
   else
     secureClient.setInsecure();
   if (secureClient.connect(host, 443)) { // very slow ! > 2 seconds
-    log(F("Connected"));
-    //if (fingerprint) {
-    //   if (secureClient.verify(fingerprint, host)) {
-    //    Serial.println("certificate matches");
-    //   } else {
-    //     Serial.println("certificate doesn't match");
-    //   }
-    // }
-    secureClient.print(String("GET ") + rest +
+    TRACE();
+      secureClient.print(String("GET ") + rest +
                        " HTTP/1.1\r\n" +
-                       "Host: " + host + "\r\n" +
-                       "User-Agent: arduino/1.0.0\r\n" +
-                       "Connection: close\r\n\r\n");
- Serial.println(F("Request sent"));
+                       "Host: " + host + "\n" +
+                       "User-Agent: arduino/1.0.0\n" +
+                       "Connection: close\n\n");
+                      
+    TRACE();
+    uint16_t tentatives = 0;
     while (!secureClient.available()) {
-      Serial.println(F("Data not available"));
-      delay(10);
+       delay(50);
+       tentatives++;
+       DUMP(tentatives);
+       if (tentatives >= 50) {
+         TRACE();
+        goto end;
+       }
     }
-Serial.println(F("Data available"));
-Serial.println(F("Reading headers"));
-  while (secureClient.available()) {
+
+    TRACE();
+  while (secureClient.connected()) {
     String line = secureClient.readStringUntil('\n');
-//    log(line);
+//    DUMP(line);
     if (line == "\r") {
-      Serial.println(F("Headers received"));
+      TRACE();
       break;
     }
   }
-Serial.println(F("Reading contents"));
-  while (secureClient.connected()) {
-              char c = secureClient.read();
-
-    contents += c;
+TRACE();
+static uint8_t _buffer[RESP_BUFFER_LENGTH];
+  while (secureClient.available()) {
+    int actualLength = secureClient.read(_buffer, RESP_BUFFER_LENGTH  - 1);
+     if (actualLength <= 0) {
+      break;
+     }
+     _buffer[actualLength] = 0;
+     contents += String((char*)_buffer).substring(0, actualLength);
+    DUMP(contents);
   }
- secureClient.stop();
- log(F("Done reading contents"));
-    log(contents);
   }
-
+end:
+  DUMP(contents);
+  secureClient.stop();
   return contents;
 }
 
@@ -852,7 +718,6 @@ String getHttpContents(String url) {
   String contents;
   if (WiFi.isConnected()) {
     HTTPClient client;
-    Serial.println(url);
     if (client.begin(wclient, url) == true) {
       if (client.GET()) {
         contents = client.getString();
@@ -899,7 +764,7 @@ void getQuotes() {
     }
     stocks_rest = String(F("/stable/tops/last?token=")) + iextoken + "&symbols=" + stocks;
   }
-  if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 13 * 60 * 1000)) { // every 17 mn
+  if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 10 * 60 * 1000)) { // every 10 mn
     lastIEXQuery = millis();
     String json = getHttpsContents(STOCKS_HOST, stocks_rest.c_str()); //fingerprintIEX);
     DynamicJsonDocument doc(1024);
@@ -939,12 +804,12 @@ void getQuotes() {
 }
 
 
-void displayQuotes() {
+void displayQuotes(char* destination) {
   getQuotes();
   if (stocksBuffer[0] != 0) {
-    strcpy(scrollBuffer, stocksBuffer);
+    strcpy(destination, stocksBuffer);
   } else {
-    strcpy(scrollBuffer, "");
+    strcpy(destination, "");
   }
 }
 
@@ -961,7 +826,7 @@ void getInsideTemp() {
     if (WiFi.isConnected()) {
       //      String json = getHttpsContents(ADAFRUIT_HOST, ADAFRUIT_REST); // , fingerprintAIO);
       String json = getHttpContents(localurl);
-      Serial.println(json);
+      DUMP(json);
       StaticJsonDocument<128> doc;
       auto result = deserializeJson(doc, json);
       if (!result) {
@@ -976,30 +841,30 @@ void getInsideTemp() {
   }
 }
 
-void displayInsideTemp() {
+void displayInsideTemp(char* destination) {
   getInsideTemp();
   if (insideTemp > -100.0) {
     if ((fabs(round(insideTemp) - insideTemp)) <= 0000.1) // int, do not display trailing 0
-      sprintf(scrollBuffer, "Temp\xE9rature int\xE9rieure : %d$", (int)round(insideTemp));
+      sprintf(destination, "Temp\xE9rature int\xE9rieure : %d$", (int)round(insideTemp));
     else
-      sprintf(scrollBuffer, "Temp\xE9rature int\xE9rieure : %.1f$", insideTemp); // one decimal
+      sprintf(destination, "Temp\xE9rature int\xE9rieure : %.1f$", insideTemp); // one decimal
   } else {
     if (insideTemp == -110.0)
-      strcpy(scrollBuffer, "Temp\xE9rature int\xE9rieure : Erreur");
+      strcpy(destination, "Temp\xE9rature int\xE9rieure : Erreur");
     else if (insideTemp == -105.0)
-      strcpy(scrollBuffer, "Temp\xE9rature int\xE9rieure : Pas de connection");
+      strcpy(destination, "Temp\xE9rature int\xE9rieure : Pas de connection");
     else
-      strcpy(scrollBuffer, "");
+      strcpy(destination, "");
   }
 }
 
-void displayText() {
-  strcpy(scrollBuffer, textBuffer);
+void displayText(char* destination) {
+  strcpy(destination, textBuffer);
 }
 
-void displayInvaders() {
+void displayInvaders(char* destination) {
   P.setFont(0, invaderData);
-  strcpy(scrollBuffer, "abcde");
+  strcpy(destination, "abcde");
 }
 
 static String GetUptime() {
@@ -1018,42 +883,39 @@ static String GetUptime() {
   return ret;
 }
 
-void displayUptime() {
+void displayUptime(char* destination) {
   String uptime = GetUptime();
-  strcpy(scrollBuffer, uptime.c_str());
+  strcpy(destination, uptime.c_str());
 }
 
 
 unsigned long lastBusQuery = 0L;
-char BusBuffer[128] = { 0 };
+char BusBuffer[256] = { 0 };
 const char* IDFM_HOST = "api-iv.iledefrance-mobilites.fr";
 const char* BUS184_REST = "/lines/line:IDFM:C01205/stops/stop_area:IDFM:70364/realtime";
 
+StaticJsonDocument<1536> doc;
 void getBus() {
   unsigned long m = millis();
   if ((lastBusQuery == 0) || ((m - lastBusQuery) >= 1 * 60 * 1000)) { // every 1 mn
     String textScroller = "Bus 184 ";
     lastBusQuery = m;
+    TRACE();
     String json = getHttpsContents(IDFM_HOST, BUS184_REST); 
-    //        Serial.println(json);
-   StaticJsonDocument<128> filter;
-  StaticJsonDocument<1024> doc;
-    JsonObject filter_nextDepartures = filter.createNestedObject("nextDepartures");
-    JsonObject filter_nextDepartures_data_0 = filter_nextDepartures["data"].createNestedObject();
-    filter_nextDepartures_data_0["lineDirection"] = true;
-    filter_nextDepartures_data_0["code"] = true;
-    filter_nextDepartures_data_0["time"] = true;
-    filter_nextDepartures_data_0["duration"] = true;
-    filter_nextDepartures["statusCode"] = true;
-    DeserializationError error = deserializeJson(doc, json, DeserializationOption::Filter(filter));
+    DUMP(json);
+    DeserializationError error = deserializeJson(doc, json);
+    TRACE();
     if (error) {
       textScroller += error.f_str();
+      DUMP(error.f_str());
     } else {
+      TRACE();
       // test for error
       if (doc["nextDepartures"]["statusCode"] == 200) {
         char previousDirection[64] = { 0 };
         for (JsonObject item : doc["nextDepartures"]["data"].as<JsonArray>()) {
             const char* lineDirection = item["lineDirection"];
+            DUMP(lineDirection);
             boolean isSameDirection = !strcmp(lineDirection, previousDirection);
             if (isSameDirection) {
               textScroller += ",";
@@ -1084,12 +946,13 @@ void getBus() {
   }
 }
 
-void displayBus() {
+void displayBus(char* destination) {
+  TRACE();
   getBus();
   if (BusBuffer[0] != 0) {
-    strcpy(scrollBuffer, BusBuffer);
+    strcpy(destination, BusBuffer);
   } else {
-    strcpy(scrollBuffer, "");
+    strcpy(destination, "");
   }
 }
 
@@ -1105,7 +968,7 @@ void getIss() {
   if ((lastIssQuery == 0) || ((m - lastIssQuery) >= 17 * 60 * 1000)) { // every 17 mn
     lastIssQuery = m;
     String json = getHttpContents(ISS_HOST);
-    //        Serial.println(json);
+    DUMP(json);
     DynamicJsonDocument doc(768);
     auto result = deserializeJson(doc, json);
     if (!result) {
@@ -1127,17 +990,17 @@ void getIss() {
   unsigned long nnow = now();
   unsigned long eend = risetime + duration;
   if (eend < nnow) { // too late
-    //        Serial.println("too late");
+    TRACE();
     strcpy(issBuffer, "No ISS info");
     lastIssQuery = 0;
   } else if (risetime < nnow) { // over
-    //        Serial.println("over");
+    TRACE();
     int remaining = eend - nnow;
     int mm = remaining / 60;
     int ss = remaining % 60;
     sprintf(issBuffer, "ISS visible for %dm%ds", mm, ss);
   } else { // waiting
-    //        Serial.println("waiting");
+    TRACE();
     long wait = risetime - nnow;
     int mm = wait / 60;
     int hh = mm / 60;
@@ -1149,12 +1012,12 @@ void getIss() {
   }
 }
 
-void displayIss() {
+void displayIss(char* destination) {
   getIss();
   if (issBuffer[0] != 0) {
-    strcpy(scrollBuffer, issBuffer);
+    strcpy(destination, issBuffer);
   } else {
-    strcpy(scrollBuffer, "");
+    strcpy(destination, "");
   }
 }
 */
@@ -1164,8 +1027,6 @@ DISPLAYFUN displayFuns[] = {
   displayTemp,
   displayDescription,
   displayInsideTemp,
-//  displayBitcoin,
-//  displayEthereum,
   displayCryptos,
   //  displayIGFollowers,
   //  displayIss,
@@ -1179,7 +1040,7 @@ DISPLAYFUN displayFuns[] = {
 
 uint8_t numFuns = sizeof(displayFuns) / sizeof(DISPLAYFUN);
 
-void loop(void) {
+void loop() {
   static unsigned long lastTime = 0;
   static unsigned long lastWifi = 0;
   static bool	flasher = false;
@@ -1191,9 +1052,8 @@ void loop(void) {
     // change scrolling contents here
     // reset default font
     P.setFont(0, ExtASCII); // all utf8 chars
-    displayFuns[curPage]();
+    displayFuns[curPage](scrollBuffer);
     curPage = (curPage + 1) % numFuns;
-    //    Serial.println(String("Curpage = ") + curPage);
     P.displayReset(0);
   }
   if (millis() - lastTime >= 1000) {
@@ -1203,7 +1063,7 @@ void loop(void) {
     getTime(flasher);
     P.displayReset(1);
   }
-  delay(10);
+  delay(5);
   if (millis() - lastWifi >= 1000 * 60 * 10) { // every 10 minute check wifi
     lastWifi = millis();
     if (!WiFi.isConnected()) {

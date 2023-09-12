@@ -12,7 +12,7 @@
 #include <WiFiClient.h>
 
 #include <ArduinoJson.h>
-#define ARDUINOTRACE_ENABLE 1  // Disable all traces
+#define ARDUINOTRACE_ENABLE 1  
 #include <ArduinoTrace.h>
 
 #include <JsonListener.h>
@@ -301,7 +301,7 @@ void displayDate(char* destination) {
   sprintf(destination, "%s %d %s", days[wd - 1], d, monthes[m - 1]);
 }
 
-String getHttpsContents(const char* host, const char* rest, const char* fingerprint = 0);
+String getHttpsContents(const char* host, const char* rest, const char* header = 0, const char* fingerprint = 0);
 
 WiFiClient wclient;
 
@@ -554,112 +554,15 @@ void displayAllChars(char* destination) {
   destination[idx] = 0;
 }
 
-/*
-int igFollowers = -1;
-
-#define INSTA_HOST "www.instagram.com"
-#define INSTA_SSL_PORT 443
-#define INSTA_CERT "8A 01 23 CA E3 B8 00 5C 2F 31 9F DE D5 5E 13 B6 4A 2A BE 1D"
-
-String currentKey = "";
-String currentParent = "";
-
-class InstagramUserListener : public JsonListener {
-  public:
-    int _followers;
-    InstagramUserListener() : _followers(-1) {};
-    virtual void whitespace(char) {}
-    virtual void startDocument() {}
-    virtual void key(String key)  {
-      currentKey = key;
-    }
-    virtual void value(String value) {
-      DUMP(value);
-      if (currentParent == "edge_followed_by") {
-        TRACE();
-        if (currentKey == "count") {
-          TRACE();
-          _followers = value.toInt();
-        }
-      }
-    }
-    virtual void endArray() {}
-    virtual void endObject() {}
-    virtual void endDocument() {}
-    virtual void startArray() {}
-    virtual void startObject() {
-      currentParent = currentKey;
-    }
-};
-
-unsigned long lastIGQuery = 0;
-
-void getIGFollowers() {
-  unsigned long m = millis();
-  if ((lastIGQuery == 0) || ((m - lastIGQuery) >= 102 * 60 * 1000)) { // every 102 mn
-    lastIGQuery = m;
-    WiFiClientSecure secureClient;
-    secureClient.setInsecure();
-     if (secureClient.connect(INSTA_HOST, INSTA_SSL_PORT)) {
-      TRACE();
-
-  
-      secureClient.print(String(F("GET /fdelhoume/?__a=1")) + " HTTP/1.1\r\n" +
-                         "Host: " + INSTA_HOST + "\r\n" +
-                         "User-Agent: arduino/1.0.0\r\n" +
-                         "Connection: close\r\n\r\n");
-
-      while (secureClient.connected() && !secureClient.available());
-      TRACE();
-
-      JsonStreamingParser parser;
-      InstagramUserListener listener;
-      currentKey = "";
-      currentParent = "";
-      parser.setListener(&listener);
-
-      while (secureClient.connected()) {
-        String line = secureClient.readStringUntil('\n');
-        DUMP(line);
-        if (line == "\r") {
-          TRACE();
-          break;
-        }
-      }
-      unsigned long now = millis();
-      // add some delay for response
-      while (millis() - now < 1000) {
-        while (secureClient.available()) {
-          char c = secureClient.read();
-          parser.parse(c);
-        }
-      }
-      if (listener._followers != -1) {
-        igFollowers = listener._followers;
-      }
-      secureClient.stop();
-    } else {
-      TRACE();
-    }
-  }
-}
-
-void displayIGFollowers(char* destination) {
-  getIGFollowers();
-  if (igFollowers != -1) {
-    sprintf(destination, "; %d followers", (int)igFollowers);
-  } else {
-    strcpy(destination, "; 233 followers*");
-  }
-}
-*/
 
 #define RESP_BUFFER_LENGTH 256
 uint8_t _buffer[RESP_BUFFER_LENGTH];
 
-String getHttpsContents(const char* host, const char* rest, const char* fingerprint) {
+String getHttpsContents(const char* host, const char* rest, const char* header, const char* fingerprint) {
   DUMP(host);
   DUMP(rest);
+  DUMP(header);
+  DUMP(fingerprint);
   String contents;
   WiFiClientSecure secureClient;
   //      secureClient.setTimeout(50);
@@ -673,6 +576,7 @@ String getHttpsContents(const char* host, const char* rest, const char* fingerpr
                        " HTTP/1.1\r\n" +
                        "Host: " + host + "\n" +
                        "User-Agent: arduino/1.0.0\n" +
+                       (header != 0 ? header : "") + "\n" +
                        "Connection: close\n\n");
                       
     TRACE();
@@ -727,8 +631,6 @@ String getHttpContents(String url) {
   }
   return contents;
 }
-
-
 
 char stocksBuffer[128] = { 0 };
 struct Quote {
@@ -803,11 +705,64 @@ void getQuotes() {
   }
 }
 
-
 void displayQuotes(char* destination) {
   getQuotes();
   if (stocksBuffer[0] != 0) {
     strcpy(destination, stocksBuffer);
+  } else {
+    strcpy(destination, "");
+  }
+}
+
+char airparifBuffer[128] = { 0 };
+
+const char* airparifHOST = "api.airparif.fr";
+const char* airparifREST = "/indices/prevision/commune?insee=94003";
+
+unsigned long lastairparifQuery = 0;
+
+char latin9buf[64];
+
+char* Utf8ToLatin9(const char* utf8) {
+      char utf8buf[64];
+      strcpy(utf8buf, utf8);
+      utf8_to_latin9(latin9buf, utf8buf, strlen(utf8buf));
+      return latin9buf;
+}
+
+
+void getAirparif() {
+  if ((lastairparifQuery == 0) || ((millis() - lastairparifQuery) >= 60 * 60 * 1000)) { // every 60 mn
+    lastairparifQuery = millis();
+    airparifBuffer[0] = 0;
+   if (WiFi.isConnected()) {
+      String json = getHttpsContents(airparifHOST, airparifREST, airparifAPIKEY);
+      DUMP(json);
+      StaticJsonDocument<512> doc;
+      DeserializationError error = deserializeJson(doc, json);
+      if (error) {
+        DUMP(error.f_str());
+       } else {
+         const char* detail = doc["detail"];
+         if (detail) {
+          sprintf(airparifBuffer, "Pollution : %s", detail);
+         } else {
+          auto day = doc["94003"].as<JsonArray>()[0];
+          String no2 = String(Utf8ToLatin9(day["no2"]));
+          String o3 = String(Utf8ToLatin9(day["o3"]));
+          String pf25 = String(Utf8ToLatin9(day["pm25"]));
+          String indice = String(Utf8ToLatin9(day["indice"]));
+          sprintf(airparifBuffer, "Indice pollution : %s (Ozone %s - Dioxyde d'Azote %s - Particules fines %s)", indice.c_str(), o3.c_str(), no2.c_str(), pf25.c_str());
+         }
+      } 
+    } 
+  } 
+}
+
+void displayAirparif(char* destination) {
+   getAirparif();
+  if (airparifBuffer[0] != 0) {
+    strcpy(destination, airparifBuffer);
   } else {
     strcpy(destination, "");
   }
@@ -956,81 +911,14 @@ void displayBus(char* destination) {
   }
 }
 
-/*
-char issBuffer[32] = { 0 };
-const char* ISS_HOST = "http://api.open-notify.org/iss-pass.json?lat=48.8075&lon=2.3361&n=4";
-unsigned long lastIssQuery = 0L;
-unsigned long risetime = 0L;
-int duration = 0;
-
-void getIss() {
-  unsigned long m = millis();
-  if ((lastIssQuery == 0) || ((m - lastIssQuery) >= 17 * 60 * 1000)) { // every 17 mn
-    lastIssQuery = m;
-    String json = getHttpContents(ISS_HOST);
-    DUMP(json);
-    DynamicJsonDocument doc(768);
-    auto result = deserializeJson(doc, json);
-    if (!result) {
-      risetime = 0; duration = 0;
-      JsonArray times = doc["response"];
-      int sizes = times.size();
-      for (uint8_t idx = 0; idx < sizes; ++idx) {
-        if (times[idx]["duration"] > duration) {
-          duration = times[idx]["duration"];
-          risetime = times[idx]["risetime"];
-        }
-      }
-    }
-  }
-  if (duration < 655) {
-    strcpy(issBuffer, "No good ISS info");
-    return;
-  }
-  unsigned long nnow = now();
-  unsigned long eend = risetime + duration;
-  if (eend < nnow) { // too late
-    TRACE();
-    strcpy(issBuffer, "No ISS info");
-    lastIssQuery = 0;
-  } else if (risetime < nnow) { // over
-    TRACE();
-    int remaining = eend - nnow;
-    int mm = remaining / 60;
-    int ss = remaining % 60;
-    sprintf(issBuffer, "ISS visible for %dm%ds", mm, ss);
-  } else { // waiting
-    TRACE();
-    long wait = risetime - nnow;
-    int mm = wait / 60;
-    int hh = mm / 60;
-    if (hh > 0) {
-      sprintf(issBuffer, "ISS in %dh%dm", hh, (mm % 60));
-    } else {
-      sprintf(issBuffer, "ISS in %dm", mm % 60);
-    }
-  }
-}
-
-void displayIss(char* destination) {
-  getIss();
-  if (issBuffer[0] != 0) {
-    strcpy(destination, issBuffer);
-  } else {
-    strcpy(destination, "");
-  }
-}
-*/
-
 DISPLAYFUN displayFuns[] = {
   displayDate,
   displayTemp,
   displayDescription,
   displayInsideTemp,
+  displayAirparif,
   displayCryptos,
-  //  displayIGFollowers,
-  //  displayIss,
-  displayQuotes,
+   displayQuotes,
   displayBus,
   displayText,
   displayUptime,

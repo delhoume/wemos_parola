@@ -205,7 +205,7 @@ void setup(void) {
 
     // returns all parameters as JSON
     webServer.on("/", HTTP_GET, []() {
-      StaticJsonDocument<256> doc;
+      JsonDocument doc;
       doc["uptime"] = uptime_formatter::getUptime();
       doc["speed"] = speed;
       doc["text"] = textBuffer;
@@ -471,7 +471,7 @@ void getOWMInfo() {
         String json = owm.getString();
         DUMP(json);
         DUMP(json.length());
-        DynamicJsonDocument doc(2048);
+        JsonDocument doc;
         auto result = deserializeJson(doc, json);
         if (!result) {
           float temp = doc["main"]["temp"];
@@ -524,7 +524,7 @@ void getCryptos() {
    if (WiFi.isConnected()) {
       String json = getHttpsContents(cryptoHOST, cryptoREST).substring(2);
 //      DUMP(json);
-      StaticJsonDocument<192> doc;
+      JsonDocument doc;
       DeserializationError error = deserializeJson(doc, json);
       if (error) {
         DUMP(error.f_str());
@@ -669,7 +669,7 @@ void getQuotes() {
   if ((lastIEXQuery == 0) || ((millis() - lastIEXQuery) >= 10 * 60 * 1000)) { // every 10 mn
     lastIEXQuery = millis();
     String json = getHttpsContents(STOCKS_HOST, stocks_rest.c_str()); //fingerprintIEX);
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     auto result = deserializeJson(doc, json);
     if (!result) {
       String str("");
@@ -738,7 +738,7 @@ void getAirparif() {
    if (WiFi.isConnected()) {
       String json = getHttpsContents(airparifHOST, airparifREST, airparifAPIKEY);
       DUMP(json);
-      StaticJsonDocument<512> doc;
+      JsonDocument doc;
       DeserializationError error = deserializeJson(doc, json);
       if (error) {
         DUMP(error.f_str());
@@ -782,7 +782,7 @@ void getInsideTemp() {
       //      String json = getHttpsContents(ADAFRUIT_HOST, ADAFRUIT_REST); // , fingerprintAIO);
       String json = getHttpContents(localurl);
       DUMP(json);
-      StaticJsonDocument<128> doc;
+      JsonDocument doc;
       auto result = deserializeJson(doc, json);
       if (!result) {
         insideTemp = doc[0]["value"];
@@ -848,8 +848,9 @@ unsigned long lastBusQuery = 0L;
 char BusBuffer[256] = { 0 };
 const char* IDFM_HOST = "api-iv.iledefrance-mobilites.fr";
 const char* BUS184_REST = "/lines/line:IDFM:C01205/stops/stop_area:IDFM:70364/realtime";
+// https://api-iv.iledefrance-mobilites.fr/lines/line:IDFM:C01205/stops/stop_area:IDFM:70364/realtime
 
-StaticJsonDocument<1536> doc;
+JsonDocument doc;
 void getBus() {
   unsigned long m = millis();
   if ((lastBusQuery == 0) || ((m - lastBusQuery) >= 1 * 60 * 1000)) { // every 1 mn

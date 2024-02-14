@@ -19,5 +19,5 @@ Works with esp8266
 
 - 3d Printed enclosure that can be as long as needed depending on number of modules
 
-![Scrolling Space Invaders](images/wemos_ticker.png)
+![Scrolling Space Invaders](images/wemos_ticker.jpg)
 ![Scrolling various information](images/wemos_ticker.mp4)

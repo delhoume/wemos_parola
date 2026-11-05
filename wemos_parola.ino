@@ -16,6 +16,7 @@
 #include <ArduinoJson.h>
 #define ARDUINOTRACE_ENABLE 0
 #include <ArduinoTrace.h>
+#include <ArduinoLog.h>
 
 #include <JsonListener.h>
 #include <JsonStreamingParser.h>

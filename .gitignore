@@ -4,3 +4,5 @@
 .vscode/extensions.json
 .vscode/c_cpp_properties.json
 .vscode/c_cpp_properties.json
+secrets.h
+secrets_save.h
